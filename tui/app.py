@@ -145,7 +145,11 @@ class MainScreen(Screen):
 class TaskScreen(Screen):
     """Shows one task's details and streams its command output."""
 
-    BINDINGS = [Binding("escape", "back", "Back")]
+    BINDINGS = [
+        Binding("r", "run", "Run"),
+        Binding("b", "back", "Back"),
+        Binding("escape", "back", "Back"),
+    ]
 
     def __init__(self, task: Task) -> None:
         super().__init__()
@@ -196,6 +200,9 @@ class TaskScreen(Screen):
         self.running = False
         self.query_one("#run", Button).disabled = False
 
+    def action_run(self) -> None:
+        self._on_run()
+
     def action_back(self) -> None:
         self.app.pop_screen()
 
@@ -207,7 +214,11 @@ class TaskScreen(Screen):
 class SequentialSetupScreen(Screen):
     """Runs the full setup one stage at a time, in order."""
 
-    BINDINGS = [Binding("escape", "back", "Back")]
+    BINDINGS = [
+        Binding("s", "start", "Start"),
+        Binding("b", "back", "Back"),
+        Binding("escape", "back", "Back"),
+    ]
 
     def __init__(self) -> None:
         super().__init__()
@@ -282,6 +293,9 @@ class SequentialSetupScreen(Screen):
             return
         task = TAILSCALE_TASK if choice == "tailscale" else WIREGUARD_TASK
         await run_steps(task.steps, log, root)
+
+    def action_start(self) -> None:
+        self._on_start()
 
     def action_back(self) -> None:
         self.app.pop_screen()
