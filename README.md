@@ -190,6 +190,25 @@ platypus-dashboard
 Then open http://localhost:5050. Override the host/port with `DASHBOARD_HOST`
 and `DASHBOARD_PORT` environment variables.
 
+## zero-to-server CLI
+
+An interactive CLI that generates a personalized
+`docker-compose.yml` plus a `Caddyfile` by asking which services you want,
+your domain, and whether to enable HTTPS.
+
+### Run
+
+```bash
+pip install -e ".[zero2server]"
+zero-to-server
+# or
+python -m zero2server
+```
+
+Answer the prompts — it writes `docker-compose.yml` and, when Caddy is
+selected, a `Caddyfile` with subdomain routes (e.g. `portainer.example.com`)
+and automatic Let's Encrypt HTTPS.
+
 ## Testing & CI
 
 A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push and

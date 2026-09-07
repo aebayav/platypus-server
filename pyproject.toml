@@ -15,6 +15,7 @@ dependencies = [
 [project.scripts]
 platypus-tui = "tui.app:main"
 platypus-dashboard = "dashboard.app:main"
+zero-to-server = "zero2server.cli:main"
 
 [project.optional-dependencies]
 dev = [
@@ -24,9 +25,12 @@ dashboard = [
     "flask>=3.0",
     "psutil>=5.9",
 ]
+zero2server = [
+    "pyyaml>=6.0",
+]
 
 [tool.setuptools]
-packages = ["tui", "tui.tasks", "dashboard"]
+packages = ["tui", "tui.tasks", "dashboard", "zero2server"]
 
 [tool.setuptools.package-data]
 dashboard = ["static/*"]
