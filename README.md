@@ -190,6 +190,19 @@ platypus-dashboard
 Then open http://localhost:5050. Override the host/port with `DASHBOARD_HOST`
 and `DASHBOARD_PORT` environment variables.
 
+### Run as a systemd service (auto-start on boot)
+
+```bash
+sudo ./scripts/install-dashboard-service.sh
+```
+
+This creates a `platypus-dashboard.service` that starts the dashboard
+automatically on boot and restarts it if it crashes:
+
+```bash
+systemctl status platypus-dashboard
+```
+
 ## zero-to-server CLI
 
 An interactive CLI that generates a personalized

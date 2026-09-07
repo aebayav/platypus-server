@@ -5,7 +5,7 @@ ANSIBLE := $(PY)/ansible
 ANSIBLE_GALAXY := $(PY)/ansible-galaxy
 ANSIBLE_LINT := $(PY)/ansible-lint
 
-.PHONY: help setup lint test check ping run clean
+.PHONY: help setup lint test check ping run clean install-dashboard
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -33,3 +33,6 @@ test: ## Run role tests with Molecule
 
 clean: ## Remove Molecule artifacts and cache
 	rm -rf .cache .molecule roles/common/.molecule
+
+install-dashboard: ## Install the dashboard as a systemd service
+	sudo ./scripts/install-dashboard-service.sh
