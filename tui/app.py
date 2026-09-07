@@ -1,9 +1,11 @@
 """Textual application: interactive server setup."""
 
 import asyncio
+import contextlib
 import os
 import shlex
 
+from rich.markup import escape
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -38,27 +40,45 @@ def build_command(step: Step, root: bool) -> str:
     return step.cmd
 
 
+async def _drain_output(proc: asyncio.subprocess.Process, log: RichLog) -> None:
+    """Stream a process's stdout into the log, escaping markup characters."""
+    assert proc.stdout is not None
+    while True:
+        line = await proc.stdout.readline()
+        if not line:
+            break
+        log.write(escape(line.decode("utf-8", errors="replace").rstrip()))
+        await asyncio.sleep(0)
+
+
 async def run_steps(steps: tuple[Step, ...], log: RichLog, root: bool) -> None:
     """Execute a sequence of steps, streaming output into a RichLog."""
     for step in steps:
         log.write(f"\n[bold cyan]── {step.title} ──[/]")
-        proc = await asyncio.create_subprocess_shell(
-            build_command(step, root),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.STDOUT,
-        )
-        assert proc.stdout is not None
-        while True:
-            line = await proc.stdout.readline()
-            if not line:
-                break
-            log.write(line.decode("utf-8", errors="replace").rstrip())
-            await asyncio.sleep(0)
-        code = await proc.wait()
-        if code != 0:
-            log.write(f"[bold red]✗ {step.title} failed (exit {code})[/]")
-        else:
-            log.write("[green]✓ done[/]")
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                build_command(step, root),
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+            assert proc.stdout is not None
+            reader = asyncio.create_task(_drain_output(proc, log))
+            code = await proc.wait()
+            # Drain remaining buffered output, then stop. A background child can
+            # keep the pipe open after the shell exits, which would otherwise
+            # block readline() forever.
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(asyncio.shield(reader), timeout=1.0)
+            if not reader.done():
+                reader.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await reader
+            if code != 0:
+                log.write(f"[bold red]✗ {step.title} failed (exit {code})[/]")
+            else:
+                log.write("[green]✓ done[/]")
+        except Exception as exc:  # noqa: BLE001
+            log.write(f"[bold red]✗ {step.title} error: {escape(str(exc))}[/]")
 
 
 class ConfirmModal(ModalScreen[bool]):
