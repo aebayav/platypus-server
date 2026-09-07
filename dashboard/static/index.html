@@ -98,6 +98,63 @@
     border-radius: 8px;
     font-size: 13px;
   }
+
+  .run-form {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+    flex-wrap: wrap;
+  }
+  .run-form input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 13px;
+    flex: 1;
+    min-width: 140px;
+  }
+  .run-form button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 16px;
+    cursor: pointer;
+  }
+
+  .containers {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+  .container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .container-info { flex: 1; }
+  .container .name { font-weight: 600; }
+  .status-dot.running { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .status-dot.exited, .status-dot.created, .status-dot.paused, .status-dot.dead { background: var(--red); }
+  .status-dot.restarting, .status-dot.removing { background: var(--yellow); }
+  .actions { display: flex; gap: 6px; }
+  .btn {
+    background: var(--border);
+    color: var(--text);
+    border: none;
+    border-radius: 6px;
+    padding: 5px 9px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .btn.danger { background: var(--red); color: #fff; }
 </style>
 </head>
 <body>
@@ -131,6 +188,16 @@
       <div class="temp-grid" id="temps"><span class="badge">no sensors</span></div>
     </div>
   </div>
+
+  <div class="section-title">Containers</div>
+  <form class="run-form" id="run-form">
+    <input id="run-image" list="image-list" placeholder="image (e.g. nginx)" autocomplete="off">
+    <datalist id="image-list"></datalist>
+    <input id="run-name" placeholder="name (optional)">
+    <input id="run-ports" placeholder="ports (e.g. 8080:80)">
+    <button type="submit">Run</button>
+  </form>
+  <div class="containers" id="containers"><div class="badge">loading…</div></div>
 
   <div class="section-title">Services</div>
   <div class="services" id="services"></div>
@@ -219,8 +286,96 @@
       }
     }
 
+    function renderContainers(containers) {
+      const el = document.getElementById("containers");
+      if (!containers.length) {
+        el.innerHTML = '<div class="badge">no containers</div>';
+        return;
+      }
+      el.innerHTML = containers.map(c => `
+        <div class="container">
+          <div class="container-info">
+            <div class="name">${c.name}</div>
+            <div class="badge">${c.image}${c.ports ? " · " + c.ports : ""}</div>
+          </div>
+          <div class="status-dot ${c.state}"></div>
+          <div class="actions">
+            ${c.state !== "running" ? `<button class="btn" data-act="start" data-id="${c.id}">Start</button>` : ""}
+            ${c.state === "running" ? `<button class="btn" data-act="stop" data-id="${c.id}">Stop</button><button class="btn" data-act="restart" data-id="${c.id}">Restart</button>` : ""}
+            <button class="btn danger" data-act="remove" data-id="${c.id}">Remove</button>
+          </div>
+        </div>`).join("");
+      el.querySelectorAll("button[data-act]").forEach(btn => {
+        btn.addEventListener("click", () => act(btn.dataset.act, btn.dataset.id));
+      });
+    }
+
+    function renderImageList(images) {
+      document.getElementById("image-list").innerHTML = images
+        .map(i => `<option value="${i.name}">`)
+        .join("");
+    }
+
+    async function act(action, id) {
+      if (action === "remove" && !confirm("Remove container " + id + "?")) return;
+      const url = action === "remove"
+        ? `/api/containers/${id}`
+        : `/api/containers/${id}/${action}`;
+      try {
+        const res = await fetch(url, { method: action === "remove" ? "DELETE" : "POST" });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          alert(d.error || "operation failed");
+        }
+      } catch (e) {
+        alert("connection error");
+      }
+      loadContainers();
+    }
+
+    async function loadContainers() {
+      const el = document.getElementById("containers");
+      try {
+        const [cres, ires] = await Promise.all([
+          fetch("/api/containers"),
+          fetch("/api/images"),
+        ]);
+        renderContainers((await cres.json()).containers || []);
+        renderImageList((await ires.json()).images || []);
+      } catch (e) {
+        el.innerHTML = '<div class="badge error">docker unavailable</div>';
+      }
+    }
+
+    document.getElementById("run-form").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const payload = {
+        image: document.getElementById("run-image").value,
+        name: document.getElementById("run-name").value,
+        ports: document.getElementById("run-ports").value,
+      };
+      try {
+        const res = await fetch("/api/containers", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          alert(d.error || "run failed");
+        } else {
+          document.getElementById("run-form").reset();
+          loadContainers();
+        }
+      } catch (e) {
+        alert("connection error");
+      }
+    });
+
     refresh();
+    loadContainers();
     setInterval(refresh, 3000);
+    setInterval(loadContainers, 5000);
   </script>
 </body>
 </html>

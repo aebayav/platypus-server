@@ -5,9 +5,9 @@ import socket
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify, request, send_from_directory
 
-from . import metrics
+from . import dockerctl, metrics
 from .services import get_services
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
@@ -65,6 +65,64 @@ def index():
 @app.get("/api/status")
 def status():
     return jsonify(_snapshot())
+
+
+@app.get("/api/containers")
+def api_containers():
+    try:
+        return jsonify({"containers": dockerctl.list_containers()})
+    except dockerctl.DockerError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.get("/api/images")
+def api_images():
+    try:
+        return jsonify({"images": dockerctl.list_images()})
+    except dockerctl.DockerError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.post("/api/containers")
+def api_run_container():
+    payload = request.get_json(silent=True) or {}
+    image = (payload.get("image") or "").strip()
+    if not image:
+        return jsonify({"error": "image is required"}), 400
+    try:
+        cid = dockerctl.run_container(
+            image,
+            name=(payload.get("name") or "").strip() or None,
+            ports=(payload.get("ports") or "").strip() or None,
+        )
+        return jsonify({"ok": True, "id": cid})
+    except dockerctl.DockerError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.post("/api/containers/<cid>/<action>")
+def api_container_action(cid: str, action: str):
+    actions = {
+        "start": dockerctl.start_container,
+        "stop": dockerctl.stop_container,
+        "restart": dockerctl.restart_container,
+    }
+    if action not in actions:
+        return jsonify({"error": "unknown action"}), 400
+    try:
+        actions[action](cid)
+        return jsonify({"ok": True})
+    except dockerctl.DockerError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.delete("/api/containers/<cid>")
+def api_remove_container(cid: str):
+    try:
+        dockerctl.remove_container(cid)
+        return jsonify({"ok": True})
+    except dockerctl.DockerError as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 def main() -> None:
