@@ -1,0 +1,20 @@
+---
+# platypus role: metadata
+galaxy_info:
+  author: platypus
+  description: platypus-server application deployment
+  license: MIT
+  min_ansible_version: "2.16"
+  platforms:
+    - name: Debian
+      versions:
+        - bookworm
+    - name: Ubuntu
+      versions:
+        - jammy
+        - noble
+  galaxy_tags:
+    - platypus
+    - app
+
+dependencies: []

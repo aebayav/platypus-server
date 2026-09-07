@@ -1,0 +1,3 @@
+---
+# Common server configuration (base role)
+# Base tasks that run on all servers are collected here.

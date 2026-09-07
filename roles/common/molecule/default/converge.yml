@@ -1,0 +1,11 @@
+---
+# Molecule converge: applies the role to the test container
+- name: Converge
+  hosts: all
+  gather_facts: true
+  vars:
+    common_packages:
+      - curl
+      - vim
+  roles:
+    - role: common

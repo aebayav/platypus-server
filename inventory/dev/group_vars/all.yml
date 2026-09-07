@@ -1,0 +1,7 @@
+---
+# Group variables for the development environment
+platypus:
+  app_name: platypus-server
+  app_user: platypus
+  app_port: 8080
+  timezone: Europe/Istanbul

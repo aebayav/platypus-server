@@ -1,0 +1,19 @@
+---
+# common role: tasks
+- name: Update the apt package cache
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  become: true
+  when: ansible_os_family == "Debian"
+
+- name: Install base packages
+  ansible.builtin.package:
+    name: "{{ common_packages }}"
+    state: present
+  become: true
+
+- name: Set the timezone
+  community.general.timezone:
+    name: "{{ timezone | default('UTC') }}"
+  become: true

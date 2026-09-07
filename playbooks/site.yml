@@ -1,0 +1,9 @@
+---
+# Main playbook: configures all platypus-server hosts
+- name: Configure platypus-server hosts
+  hosts: platypus
+  gather_facts: true
+
+  roles:
+    - common
+    - platypus

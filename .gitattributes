@@ -1,0 +1,12 @@
+# Normalize line endings: keep LF for source, config and shell files.
+* text=auto
+
+*.py   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.sh   text eol=lf
+*.md   text eol=lf
+Makefile text eol=lf
+
+# PowerShell scripts stay CRLF on Windows.
+*.ps1 text eol=crlf

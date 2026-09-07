@@ -1,0 +1,19 @@
+---
+# ansible-lint configuration
+profile: production
+
+exclude_paths:
+  - .cache/
+  - collections/
+  - .github/
+  - .molecule/
+
+# skip_list:
+#   - name[missing]
+#   - fqcn[action-core]
+
+warn_list:
+  - experimental
+  - jinja[spacing]
+
+offline: false

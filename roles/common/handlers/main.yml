@@ -1,0 +1,6 @@
+---
+# common role: handlers
+# - name: restart example
+#   ansible.builtin.systemd:
+#     name: example
+#     state: restarted

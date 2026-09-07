@@ -1,0 +1,19 @@
+---
+# platypus role: tasks
+# Application installation and deployment steps go here.
+- name: Create the application user
+  ansible.builtin.user:
+    name: "{{ app_user }}"
+    system: true
+    create_home: true
+    shell: /bin/bash
+  become: true
+
+- name: Create the application directory
+  ansible.builtin.file:
+    path: "/opt/{{ app_name }}"
+    state: directory
+    owner: "{{ app_user }}"
+    group: "{{ app_user }}"
+    mode: "0755"
+  become: true

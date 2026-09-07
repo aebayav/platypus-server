@@ -1,0 +1,9 @@
+# Python dependencies (installed inside a venv)
+ansible-core>=2.16,<2.19
+ansible-lint>=24.0
+yamllint>=1.33
+molecule>=24.0
+molecule-plugins[docker]>=23.5
+pytest>=8.0
+pytest-ansible>=24.0
+jmespath>=1.0

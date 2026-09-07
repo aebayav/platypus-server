@@ -1,0 +1,16 @@
+---
+# Molecule verify: confirms the role ran successfully
+- name: Verify
+  hosts: all
+  gather_facts: true
+  tasks:
+    - name: Verify the curl package is installed
+      ansible.builtin.package_facts:
+        manager: auto
+
+    - name: Check the curl package
+      ansible.builtin.assert:
+        that:
+          - "'curl' in ansible_facts.packages"
+        success_msg: "curl package is installed."
+        fail_msg: "curl package is not installed."

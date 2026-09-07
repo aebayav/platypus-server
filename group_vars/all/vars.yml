@@ -1,0 +1,9 @@
+---
+# Common variables for all environments
+# e.g. NTP servers, package lists, etc.
+common_packages:
+  - git
+  - curl
+  - vim
+  - htop
+  - unzip

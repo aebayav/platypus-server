@@ -1,0 +1,5 @@
+---
+# platypus role: default variables
+app_name: platypus-server
+app_user: platypus
+app_port: 8080
