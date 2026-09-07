@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Platypus Dashboard</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --card: #181b22;
+    --border: #262a33;
+    --text: #e6e8eb;
+    --muted: #8b93a1;
+    --green: #2ecc71;
+    --red: #e74c3c;
+    --yellow: #f1c40f;
+    --accent: #4da3ff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    padding: 24px;
+  }
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 24px;
+  }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .subtitle { color: var(--muted); font-size: 13px; }
+  .error { color: var(--red); }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px;
+  }
+  .card h3 {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .value { font-size: 28px; font-weight: 600; }
+  .badge { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .bar {
+    height: 8px;
+    background: var(--border);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: 12px;
+  }
+  .bar > div {
+    height: 100%;
+    width: 0;
+    background: var(--accent);
+    border-radius: 4px;
+    transition: width 0.4s ease;
+  }
+
+  .section-title { font-size: 16px; margin: 8px 0 14px; }
+  .services {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+  }
+  .service {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 16px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .service .name { font-weight: 600; }
+  .status-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .status-dot.up { background: var(--green); box-shadow: 0 0 8px var(--green); }
+  .status-dot.down { background: var(--red); }
+  .status-dot.unknown { background: var(--yellow); }
+
+  .temp-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+  .temp-chip {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Platypus Dashboard</h1>
+      <div class="subtitle" id="last-updated">connecting…</div>
+    </div>
+    <div class="subtitle" id="uptime">—</div>
+  </header>
+
+  <div class="grid">
+    <div class="card">
+      <h3>CPU</h3>
+      <div class="value" id="cpu">—</div>
+      <div class="badge" id="load">—</div>
+      <div class="bar"><div id="cpu-bar"></div></div>
+    </div>
+    <div class="card">
+      <h3>Memory</h3>
+      <div class="value" id="mem">—</div>
+      <div class="bar"><div id="mem-bar"></div></div>
+    </div>
+    <div class="card">
+      <h3>Disk</h3>
+      <div class="value" id="disk">—</div>
+      <div class="bar"><div id="disk-bar"></div></div>
+    </div>
+    <div class="card">
+      <h3>Temperature</h3>
+      <div class="temp-grid" id="temps"><span class="badge">no sensors</span></div>
+    </div>
+  </div>
+
+  <div class="section-title">Services</div>
+  <div class="services" id="services"></div>
+
+  <script>
+    function fmtBytes(n) {
+      if (n == null) return "—";
+      const units = ["B", "KB", "MB", "GB", "TB"];
+      let i = 0;
+      while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+      return n.toFixed(1) + " " + units[i];
+    }
+
+    function fmtUptime(s) {
+      if (s == null) return "—";
+      const d = Math.floor(s / 86400);
+      const h = Math.floor((s % 86400) / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      return "uptime " + (d ? d + "d " : "") + h + "h " + m + "m";
+    }
+
+    function setBar(id, pct) {
+      const el = document.getElementById(id);
+      if (el) el.style.width = Math.max(0, Math.min(100, pct)) + "%";
+    }
+
+    function render(data) {
+      const m = data.metrics || {};
+
+      document.getElementById("cpu").textContent =
+        m.cpu_percent != null ? m.cpu_percent.toFixed(1) + "%" : "—";
+      setBar("cpu-bar", m.cpu_percent || 0);
+      document.getElementById("load").textContent = m.load_avg
+        ? "load " + m.load_avg.join(" / ")
+        : (m.cpu_count ? m.cpu_count + " cores" : "—");
+
+      const mem = m.memory || {};
+      document.getElementById("mem").textContent = mem.percent != null
+        ? fmtBytes(mem.used) + " / " + fmtBytes(mem.total)
+        : "—";
+      setBar("mem-bar", mem.percent || 0);
+
+      const disk = m.disk || {};
+      document.getElementById("disk").textContent = disk.percent != null
+        ? fmtBytes(disk.used) + " / " + fmtBytes(disk.total)
+        : "—";
+      setBar("disk-bar", disk.percent || 0);
+
+      const temps = m.temperatures || {};
+      const keys = Object.keys(temps);
+      const tempEl = document.getElementById("temps");
+      if (keys.length) {
+        tempEl.innerHTML = keys.map(k =>
+          `<span class="temp-chip">${k}: <b>${temps[k]}°C</b></span>`
+        ).join("");
+      } else {
+        tempEl.innerHTML = '<span class="badge">no sensors</span>';
+      }
+
+      document.getElementById("uptime").textContent = fmtUptime(m.uptime_seconds);
+
+      const services = data.services || [];
+      document.getElementById("services").innerHTML = services.map(s => `
+        <div class="service">
+          <div>
+            <div class="name">${s.name}</div>
+            <div class="badge">${s.url || ""}${s.http_code ? " · " + s.http_code : ""}</div>
+          </div>
+          <div class="status-dot ${s.status}"></div>
+        </div>`).join("");
+
+      document.getElementById("last-updated").textContent =
+        "updated " + new Date().toLocaleTimeString();
+      document.getElementById("last-updated").className = "subtitle";
+    }
+
+    async function refresh() {
+      try {
+        const res = await fetch("/api/status");
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        render(await res.json());
+      } catch (e) {
+        const el = document.getElementById("last-updated");
+        el.textContent = "connection error";
+        el.className = "subtitle error";
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 3000);
+  </script>
+</body>
+</html>

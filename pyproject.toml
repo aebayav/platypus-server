@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "platypus-tui"
 version = "0.1.0"
-description = "Interactive TUI for Linux server setup (Docker, Caddy, SSH, UFW, VPN)"
+description = "Interactive TUI and web dashboard for Linux server setup and monitoring"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -14,14 +14,22 @@ dependencies = [
 
 [project.scripts]
 platypus-tui = "tui.app:main"
+platypus-dashboard = "dashboard.app:main"
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
 ]
+dashboard = [
+    "flask>=3.0",
+    "psutil>=5.9",
+]
 
 [tool.setuptools]
-packages = ["tui", "tui.tasks"]
+packages = ["tui", "tui.tasks", "dashboard"]
+
+[tool.setuptools.package-data]
+dashboard = ["static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

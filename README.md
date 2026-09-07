@@ -158,6 +158,38 @@ sudo -E .venv/bin/platypus-tui
 > The TUI performs **real system changes**. Run it directly on the Linux server
 > you want to configure — it is not intended for Windows hosts.
 
+## Web Dashboard
+
+A small web dashboard (Flask + psutil) shows local services and system metrics
+on a single page:
+
+- **Services** — Portainer, Uptime Kuma, and your own projects (up/down status)
+- **System** — CPU, memory, disk usage and temperatures
+
+### Configure services
+
+Edit `dashboard/services.py` to list your services:
+
+```python
+SERVICES = [
+    {"name": "Portainer", "url": "http://localhost:9000"},
+    {"name": "Uptime Kuma", "url": "http://localhost:3001"},
+    {"name": "My App", "url": "http://localhost:8080"},
+]
+```
+
+### Run
+
+```bash
+pip install -e ".[dashboard]"
+python -m dashboard
+# or
+platypus-dashboard
+```
+
+Then open http://localhost:5050. Override the host/port with `DASHBOARD_HOST`
+and `DASHBOARD_PORT` environment variables.
+
 ## Testing & CI
 
 A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push and
