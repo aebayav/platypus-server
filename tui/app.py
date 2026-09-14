@@ -18,6 +18,7 @@ from textual.widgets import (
     Label,
     ListItem,
     ListView,
+    LoadingIndicator,
     Markdown,
     RichLog,
     Static,
@@ -26,6 +27,16 @@ from textual.widgets import (
 from .tasks import SETUP_ORDER, TASKS
 from .tasks.base import Step, Task
 from .tasks.vpn import TAILSCALE_TASK, WIREGUARD_TASK
+
+# Short descriptions shown in the main menu beneath each task title.
+_TASK_HINTS: dict[str, str] = {
+    "docker": "Docker Engine + Compose plugin via get.docker.com",
+    "caddy": "Reverse proxy with automatic HTTPS",
+    "ssh": "Disable root/password login, tighten sshd options",
+    "ufw": "Firewall: allow SSH/HTTP/HTTPS, deny everything else",
+    "tailscale": "Zero-config VPN — authenticate via browser URL",
+    "wireguard": "Self-hosted VPN — manual peer configuration",
+}
 
 
 def is_root() -> bool:
@@ -51,8 +62,12 @@ async def _drain_output(proc: asyncio.subprocess.Process, log: RichLog) -> None:
         await asyncio.sleep(0)
 
 
-async def run_steps(steps: tuple[Step, ...], log: RichLog, root: bool) -> None:
-    """Execute a sequence of steps, streaming output into a RichLog."""
+async def run_steps(steps: tuple[Step, ...], log: RichLog, root: bool) -> bool:
+    """Execute a sequence of steps, streaming output into a RichLog.
+
+    Returns True if all steps succeeded, False if any step failed.
+    """
+    all_ok = True
     for step in steps:
         log.write(f"\n[bold cyan]── {step.title} ──[/]")
         try:
@@ -74,11 +89,19 @@ async def run_steps(steps: tuple[Step, ...], log: RichLog, root: bool) -> None:
                 with contextlib.suppress(asyncio.CancelledError):
                     await reader
             if code != 0:
-                log.write(f"[bold red]✗ {step.title} failed (exit {code})[/]")
+                log.write(f"[bold red]  FAILED  {step.title} (exit {code})[/]")
+                all_ok = False
             else:
-                log.write("[green]✓ done[/]")
+                log.write("[green]  OK[/]")
         except Exception as exc:  # noqa: BLE001
-            log.write(f"[bold red]✗ {step.title} error: {escape(str(exc))}[/]")
+            log.write(f"[bold red]  ERROR  {step.title}: {escape(str(exc))}[/]")
+            all_ok = False
+    return all_ok
+
+
+# ---------------------------------------------------------------------------
+# Modals
+# ---------------------------------------------------------------------------
 
 
 class ConfirmModal(ModalScreen[bool]):
@@ -90,9 +113,9 @@ class ConfirmModal(ModalScreen[bool]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog"):
-            yield Static("Warning", classes="title")
+            yield Static("! Caution", classes="dialog-title dialog-title--warn")
             yield Markdown(self.message)
-            with Horizontal(classes="buttons"):
+            with Horizontal(classes="dialog-buttons"):
                 yield Button("Cancel", variant="default", id="cancel")
                 yield Button("Continue", variant="error", id="continue")
 
@@ -110,12 +133,31 @@ class VpnChoiceModal(ModalScreen[str]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="dialog"):
-            yield Static("VPN Selection", classes="title")
-            yield Static("Choose how to set up secure remote access.")
-            with Horizontal(classes="buttons"):
-                yield Button("Skip", variant="default", id="skip")
-                yield Button("WireGuard", variant="primary", id="wireguard")
-                yield Button("Tailscale", variant="primary", id="tailscale")
+            yield Static("VPN Selection", classes="dialog-title")
+            yield Static(
+                "Choose how to set up secure remote access for this server.",
+                classes="dialog-subtitle",
+            )
+            with Vertical(id="vpn-options"):
+                with Vertical(classes="vpn-option"):
+                    yield Static("Tailscale", classes="vpn-option-name")
+                    yield Static(
+                        "Zero-config mesh VPN. Authenticate via a browser URL "
+                        "after install — no manual key exchange needed.",
+                        classes="vpn-option-desc",
+                    )
+                    yield Button("Install Tailscale", variant="primary", id="tailscale")
+                with Vertical(classes="vpn-option"):
+                    yield Static("WireGuard", classes="vpn-option-name")
+                    yield Static(
+                        "Self-hosted VPN. Generates server keys and a wg0 "
+                        "interface on 10.13.13.1/24 (UDP 51820). "
+                        "Peers must be added manually.",
+                        classes="vpn-option-desc",
+                    )
+                    yield Button("Install WireGuard", variant="primary", id="wireguard")
+            with Horizontal(classes="dialog-buttons"):
+                yield Button("Skip VPN", variant="default", id="skip")
 
     @on(Button.Pressed, "#tailscale")
     def _tailscale(self) -> None:
@@ -128,6 +170,11 @@ class VpnChoiceModal(ModalScreen[str]):
     @on(Button.Pressed, "#skip")
     def _skip(self) -> None:
         self.dismiss("skip")
+
+
+# ---------------------------------------------------------------------------
+# Screens
+# ---------------------------------------------------------------------------
 
 
 class MainScreen(Screen):
@@ -144,11 +191,20 @@ class MainScreen(Screen):
                 classes="subtitle",
             )
             with ListView(id="task-list"):
-                yield ListItem(
-                    Label("Sequential Setup (step-by-step)"), id="sequential"
-                )
+                # Sequential Setup — top entry, visually distinct
+                with ListItem(id="sequential"):
+                    yield Label("Sequential Setup", classes="item-title item-title--highlight")
+                    yield Label(
+                        "Run all stages in order, with per-stage confirmation",
+                        classes="item-hint",
+                    )
+                # Individual tasks
                 for task in TASKS:
-                    yield ListItem(Label(task.title))
+                    hint = _TASK_HINTS.get(task.id, "")
+                    with ListItem():
+                        yield Label(task.title, classes="item-title")
+                        if hint:
+                            yield Label(hint, classes="item-hint")
         yield Footer()
 
     @on(ListView.Selected, "#task-list")
@@ -184,11 +240,20 @@ class TaskScreen(Screen):
             if self._task_def.warning:
                 yield Markdown(f"**Note:** {self._task_def.warning}", classes="warning")
             yield Static("Output", classes="section")
+            yield Static(
+                "Press [Run] or hit  r  to execute this task.",
+                id="output-placeholder",
+                classes="placeholder",
+            )
+            yield LoadingIndicator(id="spinner")
             yield RichLog(id="output", wrap=True, markup=True, highlight=True)
         with Horizontal(id="task-actions"):
             yield Button("Run", variant="success", id="run")
             yield Button("Back", variant="default", id="back")
         yield Footer()
+
+    def on_mount(self) -> None:
+        self.query_one("#spinner", LoadingIndicator).display = False
 
     @on(Button.Pressed, "#run")
     def _on_run(self) -> None:
@@ -203,7 +268,11 @@ class TaskScreen(Screen):
         if not confirmed:
             return
         self.running = True
-        self.query_one("#run", Button).disabled = True
+        run_btn = self.query_one("#run", Button)
+        run_btn.disabled = True
+        run_btn.label = "Running..."
+        self.query_one("#output-placeholder").display = False
+        self.query_one("#spinner", LoadingIndicator).display = True
         log = self.query_one("#output", RichLog)
         log.clear()
         log.write(
@@ -215,10 +284,16 @@ class TaskScreen(Screen):
     @work(exclusive=True, group="task")
     async def _run_task(self) -> None:
         log = self.query_one("#output", RichLog)
-        await run_steps(self._task_def.steps, log, is_root())
-        log.write("\n[bold green]Task finished.[/]")
+        ok = await run_steps(self._task_def.steps, log, is_root())
+        self.query_one("#spinner", LoadingIndicator).display = False
+        if ok:
+            log.write("\n[bold green]Task finished successfully.[/]")
+        else:
+            log.write("\n[bold red]Task finished with errors — review output above.[/]")
         self.running = False
-        self.query_one("#run", Button).disabled = False
+        run_btn = self.query_one("#run", Button)
+        run_btn.label = "Run Again"
+        run_btn.disabled = False
 
     def action_run(self) -> None:
         self._on_run()
@@ -229,6 +304,13 @@ class TaskScreen(Screen):
     @on(Button.Pressed, "#back")
     def _on_back(self) -> None:
         self.action_back()
+
+
+# Stage status markers (ASCII, no emoji)
+_STAGE_DONE = "[green]  [DONE]   [/]"
+_STAGE_RUNNING = "[bold yellow]  [ACTIVE] [/]"
+_STAGE_PENDING = "  [ ]      "
+_STAGE_SKIPPED = "[dim]  [SKIP]   [/]"
 
 
 class SequentialSetupScreen(Screen):
@@ -245,6 +327,10 @@ class SequentialSetupScreen(Screen):
         self.plan = list(SETUP_ORDER)
         self.running = False
 
+    # ------------------------------------------------------------------
+    # Compose
+    # ------------------------------------------------------------------
+
     def compose(self) -> ComposeResult:
         yield Header()
         with VerticalScroll(id="setup-body"):
@@ -254,26 +340,59 @@ class SequentialSetupScreen(Screen):
                 "Stages with a warning (SSH hardening, UFW) ask for confirmation "
                 "before they run, and you can skip any of them."
             )
-            yield Static("Plan", classes="section")
+            yield Static("Stages", classes="section")
             for i, task in enumerate(self.plan, start=1):
-                yield Static(f"{i}. {task.title}", classes="plan-item")
+                yield Static(
+                    f"{_STAGE_PENDING}{i}. {task.title}",
+                    id=f"stage-{task.id}",
+                    classes="plan-item",
+                    markup=True,
+                )
+            vpn_index = len(self.plan) + 1
             yield Static(
-                f"{len(self.plan) + 1}. VPN (Tailscale or WireGuard)",
+                f"{_STAGE_PENDING}{vpn_index}. VPN (Tailscale or WireGuard)",
+                id="stage-vpn",
                 classes="plan-item",
+                markup=True,
             )
             yield Static("Output", classes="section")
+            yield LoadingIndicator(id="spinner")
             yield RichLog(id="output", wrap=True, markup=True, highlight=True)
         with Horizontal(id="task-actions"):
             yield Button("Start", variant="success", id="start")
             yield Button("Back", variant="default", id="back")
         yield Footer()
 
+    def on_mount(self) -> None:
+        self.query_one("#spinner", LoadingIndicator).display = False
+
+    # ------------------------------------------------------------------
+    # Helpers: stage status updates
+    # ------------------------------------------------------------------
+
+    def _set_stage_status(self, stage_id: str, index: int, title: str, status: str) -> None:
+        widget = self.query_one(f"#{stage_id}", Static)
+        marker = {
+            "running": _STAGE_RUNNING,
+            "done": _STAGE_DONE,
+            "skipped": _STAGE_SKIPPED,
+            "pending": _STAGE_PENDING,
+        }.get(status, _STAGE_PENDING)
+        widget.update(f"{marker}{index}. {title}")
+
+    # ------------------------------------------------------------------
+    # Event handlers
+    # ------------------------------------------------------------------
+
     @on(Button.Pressed, "#start")
     def _on_start(self) -> None:
         if self.running:
             return
         self.running = True
-        self.query_one("#start", Button).disabled = True
+        btn = self.query_one("#start", Button)
+        btn.disabled = True
+        btn.label = "Running..."
+        self.query_one("#spinner", LoadingIndicator).display = True
         self._run_sequence()
 
     @work(exclusive=True, group="setup")
@@ -284,35 +403,44 @@ class SequentialSetupScreen(Screen):
         for index, task in enumerate(self.plan, start=1):
             await self._run_stage(index, total, task, log, root)
         await self._run_vpn_stage(total, total, log, root)
+        self.query_one("#spinner", LoadingIndicator).display = False
         log.write("\n[bold green]Sequential setup complete![/]")
         self.running = False
-        self.query_one("#start", Button).label = "Done"
+        btn = self.query_one("#start", Button)
+        btn.label = "Done"
+        btn.variant = "success"
+        btn.disabled = True
 
     async def _run_stage(
         self, index: int, total: int, task: Task, log: RichLog, root: bool
     ) -> None:
-        log.write(f"\n[bold yellow]══ Stage {index}/{total}: {task.title} ══[/]")
+        self._set_stage_status(f"stage-{task.id}", index, task.title, "running")
+        log.write(f"\n[bold yellow]== Stage {index}/{total}: {task.title} ==[/]")
         if task.warning:
             ok = await self.app.push_screen(
                 ConfirmModal(task.warning), wait_for_dismiss=True
             )
             if not ok:
                 log.write("[dim]Skipped by user.[/]")
+                self._set_stage_status(f"stage-{task.id}", index, task.title, "skipped")
                 return
         await run_steps(task.steps, log, root)
+        self._set_stage_status(f"stage-{task.id}", index, task.title, "done")
 
     async def _run_vpn_stage(
         self, index: int, total: int, log: RichLog, root: bool
     ) -> None:
-        log.write(
-            f"\n[bold yellow]══ Stage {index}/{total}: VPN (Tailscale or WireGuard) ══[/]"
-        )
+        vpn_title = "VPN (Tailscale or WireGuard)"
+        self._set_stage_status("stage-vpn", index, vpn_title, "running")
+        log.write(f"\n[bold yellow]== Stage {index}/{total}: {vpn_title} ==[/]")
         choice = await self.app.push_screen(VpnChoiceModal(), wait_for_dismiss=True)
         if choice == "skip":
             log.write("[dim]VPN skipped by user.[/]")
+            self._set_stage_status("stage-vpn", index, vpn_title, "skipped")
             return
         task = TAILSCALE_TASK if choice == "tailscale" else WIREGUARD_TASK
         await run_steps(task.steps, log, root)
+        self._set_stage_status("stage-vpn", index, vpn_title, "done")
 
     def action_start(self) -> None:
         self._on_start()
@@ -325,6 +453,11 @@ class SequentialSetupScreen(Screen):
         self.action_back()
 
 
+# ---------------------------------------------------------------------------
+# Application
+# ---------------------------------------------------------------------------
+
+
 class PlatypusApp(App):
     """Top-level Textual app."""
 
@@ -332,10 +465,16 @@ class PlatypusApp(App):
     BINDINGS = [Binding("q", "quit", "Quit")]
 
     CSS = """
+    /* ------------------------------------------------------------------ */
+    /* Global                                                               */
+    /* ------------------------------------------------------------------ */
     Screen {
         layout: vertical;
     }
 
+    /* ------------------------------------------------------------------ */
+    /* Main screen                                                          */
+    /* ------------------------------------------------------------------ */
     #main-body {
         padding: 1 2;
     }
@@ -351,6 +490,23 @@ class PlatypusApp(App):
         padding-bottom: 1;
     }
 
+    /* Task list items */
+    .item-title {
+        text-style: bold;
+    }
+
+    .item-title--highlight {
+        color: $accent;
+    }
+
+    .item-hint {
+        color: $text-muted;
+        padding-left: 1;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Task / setup screens                                                 */
+    /* ------------------------------------------------------------------ */
     #task-body {
         padding: 1 2;
         height: 1fr;
@@ -361,24 +517,42 @@ class PlatypusApp(App):
         height: 1fr;
     }
 
-    .plan-item {
-        padding: 0 1;
-    }
-
     .task-title {
         text-style: bold;
+        color: $accent;
         padding: 1 0;
     }
 
     .section {
+        text-style: bold;
         color: $text-muted;
         padding-top: 1;
-        padding-bottom: 1;
+        padding-bottom: 0;
+        border-bottom: solid $primary-darken-2;
+    }
+
+    /* Stage plan items */
+    .plan-item {
+        padding: 0 1;
+    }
+
+    /* Output area */
+    .placeholder {
+        color: $text-muted;
+        padding: 1 1;
+        border: dashed $primary-darken-2;
+        margin-top: 1;
+    }
+
+    #spinner {
+        height: 1;
+        margin-top: 1;
     }
 
     #output {
         height: 1fr;
         border: round $primary;
+        margin-top: 1;
     }
 
     .warning {
@@ -386,6 +560,7 @@ class PlatypusApp(App):
         margin-top: 1;
     }
 
+    /* Action bar */
     #task-actions {
         padding: 1 2;
         height: auto;
@@ -396,27 +571,60 @@ class PlatypusApp(App):
         margin: 0 1;
     }
 
+    /* ------------------------------------------------------------------ */
+    /* Modals                                                               */
+    /* ------------------------------------------------------------------ */
     #dialog {
-        width: 70;
+        width: 76;
         height: auto;
-        border: thick $warning;
+        border: thick $surface-lighten-1;
         background: $surface;
         padding: 1 2;
     }
 
-    #dialog .title {
+    .dialog-title {
         text-style: bold;
-        color: $warning;
         padding-bottom: 1;
     }
 
-    #dialog .buttons {
+    .dialog-title--warn {
+        color: $warning;
+    }
+
+    .dialog-subtitle {
+        color: $text-muted;
+        padding-bottom: 1;
+    }
+
+    .dialog-buttons {
         align: right middle;
         margin-top: 1;
     }
 
-    #dialog Button {
+    .dialog-buttons Button {
         margin-left: 1;
+    }
+
+    /* VPN option cards */
+    #vpn-options {
+        margin-top: 1;
+    }
+
+    .vpn-option {
+        border: round $primary-darken-2;
+        padding: 1 2;
+        margin-bottom: 1;
+    }
+
+    .vpn-option-name {
+        text-style: bold;
+        color: $accent;
+        padding-bottom: 0;
+    }
+
+    .vpn-option-desc {
+        color: $text-muted;
+        padding-bottom: 1;
     }
     """
 
