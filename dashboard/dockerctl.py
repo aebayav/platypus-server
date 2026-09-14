@@ -100,3 +100,53 @@ def run_container(image: str, name: str | None = None, ports: str | None = None)
     result = _run(args, timeout=180)
     _require_ok(result, "run")
     return result.stdout.strip()
+
+
+def get_container_logs(container_id: str, tail: int = 200) -> list[str]:
+    """Return the last *tail* log lines for a container."""
+    result = _run(["logs", "--tail", str(tail), container_id])
+    if result.returncode != 0:
+        raise DockerError((result.stderr or "docker logs failed").strip())
+    combined = (result.stdout + result.stderr).splitlines()
+    return combined
+
+
+def get_container_stats(container_id: str) -> dict:
+    """Return a snapshot of a single container's resource usage."""
+    result = _run(
+        ["stats", "--no-stream", "--format", "{{json .}}", container_id],
+        timeout=10,
+    )
+    if result.returncode != 0:
+        raise DockerError((result.stderr or "docker stats failed").strip())
+    for line in result.stdout.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        raw = json.loads(line)
+        return {
+            "cpu_percent": raw.get("CPUPerc", "0%").rstrip("%"),
+            "mem_usage": raw.get("MemUsage", "0B / 0B"),
+            "mem_percent": raw.get("MemPerc", "0%").rstrip("%"),
+            "net_io": raw.get("NetIO", "0B / 0B"),
+            "block_io": raw.get("BlockIO", "0B / 0B"),
+        }
+    raise DockerError("no stats output")
+
+
+def pull_image(name: str) -> str:
+    """Pull an image from a registry. Returns the last line of output."""
+    result = _run(["pull", name], timeout=300)
+    _require_ok(result, "pull")
+    lines = result.stdout.strip().splitlines()
+    return lines[-1] if lines else "done"
+
+
+def remove_image(image_id: str, force: bool = False) -> None:
+    """Remove a local image."""
+    args = ["rmi"]
+    if force:
+        args.append("-f")
+    args.append(image_id)
+    _require_ok(_run(args), "rmi")
+

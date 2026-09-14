@@ -125,6 +125,48 @@ def api_remove_container(cid: str):
         return jsonify({"error": str(exc)}), 500
 
 
+@app.get("/api/containers/<cid>/logs")
+def api_container_logs(cid: str):
+    tail = request.args.get("tail", 200, type=int)
+    try:
+        lines = dockerctl.get_container_logs(cid, tail=tail)
+        return jsonify({"lines": lines})
+    except dockerctl.DockerError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.get("/api/containers/<cid>/stats")
+def api_container_stats(cid: str):
+    try:
+        return jsonify(dockerctl.get_container_stats(cid))
+    except dockerctl.DockerError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.post("/api/images/pull")
+def api_pull_image():
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("image") or "").strip()
+    if not name:
+        return jsonify({"error": "image is required"}), 400
+    try:
+        msg = dockerctl.pull_image(name)
+        return jsonify({"ok": True, "message": msg})
+    except dockerctl.DockerError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.delete("/api/images/<image_id>")
+def api_remove_image(image_id: str):
+    force = request.args.get("force", "false").lower() == "true"
+    try:
+        dockerctl.remove_image(image_id, force=force)
+        return jsonify({"ok": True})
+    except dockerctl.DockerError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+
 def main() -> None:
     host = os.environ.get("DASHBOARD_HOST", "0.0.0.0")
     port = int(os.environ.get("DASHBOARD_PORT", "5050"))
