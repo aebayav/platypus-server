@@ -41,6 +41,17 @@ def get_metrics() -> dict:
         load = [round(x, 2) for x in psutil.getloadavg()]
     except (AttributeError, OSError):
         load = None
+    net: dict = {}
+    try:
+        nio = psutil.net_io_counters()
+        net = {
+            "bytes_sent": nio.bytes_sent,
+            "bytes_recv": nio.bytes_recv,
+            "packets_sent": nio.packets_sent,
+            "packets_recv": nio.packets_recv,
+        }
+    except Exception:  # noqa: BLE001
+        pass
     return {
         "cpu_percent": psutil.cpu_percent(interval=0.2),
         "cpu_count": psutil.cpu_count(),
@@ -59,4 +70,5 @@ def get_metrics() -> dict:
         },
         "temperatures": _temperatures(),
         "uptime_seconds": int(time.time() - psutil.boot_time()),
+        "network": net,
     }
