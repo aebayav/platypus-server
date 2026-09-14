@@ -1,25 +1,67 @@
-"""Flask app serving the mini dashboard and its status API."""
+"""Flask app serving the Platypus dashboard and its REST API."""
 
 import os
 import socket
+import threading
+import time
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, redirect, request, send_from_directory, session, url_for
 
-from . import dockerctl, metrics
+from . import compose, dockerctl, firewall, metrics, systemd
+from .auth import (
+    USING_DEFAULT_CREDENTIALS,
+    check_credentials,
+    is_authenticated,
+    login_required,
+)
 from .services import get_services
 
+# ---------------------------------------------------------------------------
+# App setup
+# ---------------------------------------------------------------------------
+
 app = Flask(__name__, static_folder="static", static_url_path="/static")
+app.secret_key = os.environ.get(
+    "DASHBOARD_SECRET_KEY", "platypus-dashboard-secret-change-me"
+)
 
 CHECK_TIMEOUT = 1.5
 
+# ---------------------------------------------------------------------------
+# Background metrics recorder
+# ---------------------------------------------------------------------------
+
+def _start_metrics_recorder() -> None:
+    """Record CPU + memory into the history ringbuffer every 3 seconds."""
+    def _loop() -> None:
+        while True:
+            try:
+                m = metrics.get_metrics()
+                metrics.history.record(
+                    m["cpu_percent"],
+                    m["memory"]["percent"],
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            time.sleep(3)
+
+    t = threading.Thread(target=_loop, daemon=True, name="metrics-recorder")
+    t.start()
+
+
+_start_metrics_recorder()
+
+# ---------------------------------------------------------------------------
+# Service health helpers
+# ---------------------------------------------------------------------------
 
 def _http_check(url: str) -> int | None:
     try:
         with urllib.request.urlopen(url, timeout=CHECK_TIMEOUT) as resp:
             return resp.status
-    except Exception:
+    except Exception:  # noqa: BLE001
         return None
 
 
@@ -56,18 +98,85 @@ def _snapshot() -> dict:
         services = list(pool.map(_check_service, items))
     return {"metrics": metrics.get_metrics(), "services": services}
 
+# ---------------------------------------------------------------------------
+# Auth routes (public)
+# ---------------------------------------------------------------------------
+
+@app.get("/login")
+def login_page():
+    if is_authenticated():
+        return redirect(url_for("index"))
+    return send_from_directory(app.static_folder, "login.html")
+
+
+@app.post("/api/login")
+def api_login():
+    data = request.get_json(silent=True) or {}
+    if check_credentials(
+        (data.get("username") or "").strip(),
+        (data.get("password") or ""),
+    ):
+        session["authenticated"] = True
+        return jsonify({"ok": True})
+    return jsonify({"error": "Invalid credentials"}), 401
+
+
+@app.get("/api/logout")
+@app.post("/api/logout")
+def api_logout():
+    session.clear()
+    return redirect(url_for("login_page"))
+
+
+@app.get("/api/auth/info")
+def api_auth_info():
+    """Public endpoint — returns whether default credentials are active."""
+    return jsonify({"default_credentials": USING_DEFAULT_CREDENTIALS})
+
+# ---------------------------------------------------------------------------
+# Main page
+# ---------------------------------------------------------------------------
 
 @app.get("/")
+@login_required
 def index():
     return send_from_directory(app.static_folder, "index.html")
 
+# ---------------------------------------------------------------------------
+# System metrics
+# ---------------------------------------------------------------------------
 
 @app.get("/api/status")
+@login_required
 def status():
     return jsonify(_snapshot())
 
 
+@app.get("/api/metrics/history")
+@login_required
+def api_metrics_history():
+    points = request.args.get("points", 200, type=int)
+    return jsonify(metrics.history.snapshot(points=points))
+
+
+@app.get("/api/processes")
+@login_required
+def api_processes():
+    limit = request.args.get("limit", 20, type=int)
+    return jsonify({"processes": metrics.get_processes(limit=limit)})
+
+
+@app.get("/api/firewall")
+@login_required
+def api_firewall():
+    return jsonify(firewall.get_firewall_rules())
+
+# ---------------------------------------------------------------------------
+# Container management
+# ---------------------------------------------------------------------------
+
 @app.get("/api/containers")
+@login_required
 def api_containers():
     try:
         return jsonify({"containers": dockerctl.list_containers()})
@@ -76,6 +185,7 @@ def api_containers():
 
 
 @app.get("/api/images")
+@login_required
 def api_images():
     try:
         return jsonify({"images": dockerctl.list_images()})
@@ -84,6 +194,7 @@ def api_images():
 
 
 @app.post("/api/containers")
+@login_required
 def api_run_container():
     payload = request.get_json(silent=True) or {}
     image = (payload.get("image") or "").strip()
@@ -101,6 +212,7 @@ def api_run_container():
 
 
 @app.post("/api/containers/<cid>/<action>")
+@login_required
 def api_container_action(cid: str, action: str):
     actions = {
         "start": dockerctl.start_container,
@@ -117,6 +229,7 @@ def api_container_action(cid: str, action: str):
 
 
 @app.delete("/api/containers/<cid>")
+@login_required
 def api_remove_container(cid: str):
     try:
         dockerctl.remove_container(cid)
@@ -126,16 +239,17 @@ def api_remove_container(cid: str):
 
 
 @app.get("/api/containers/<cid>/logs")
+@login_required
 def api_container_logs(cid: str):
     tail = request.args.get("tail", 200, type=int)
     try:
-        lines = dockerctl.get_container_logs(cid, tail=tail)
-        return jsonify({"lines": lines})
+        return jsonify({"lines": dockerctl.get_container_logs(cid, tail=tail)})
     except dockerctl.DockerError as exc:
         return jsonify({"error": str(exc)}), 500
 
 
 @app.get("/api/containers/<cid>/stats")
+@login_required
 def api_container_stats(cid: str):
     try:
         return jsonify(dockerctl.get_container_stats(cid))
@@ -144,6 +258,7 @@ def api_container_stats(cid: str):
 
 
 @app.post("/api/images/pull")
+@login_required
 def api_pull_image():
     payload = request.get_json(silent=True) or {}
     name = (payload.get("image") or "").strip()
@@ -157,6 +272,7 @@ def api_pull_image():
 
 
 @app.delete("/api/images/<image_id>")
+@login_required
 def api_remove_image(image_id: str):
     force = request.args.get("force", "false").lower() == "true"
     try:
@@ -165,7 +281,66 @@ def api_remove_image(image_id: str):
     except dockerctl.DockerError as exc:
         return jsonify({"error": str(exc)}), 500
 
+# ---------------------------------------------------------------------------
+# Docker Compose stacks
+# ---------------------------------------------------------------------------
 
+@app.get("/api/compose")
+@login_required
+def api_compose_list():
+    try:
+        return jsonify({"stacks": compose.list_stacks()})
+    except compose.ComposeError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.post("/api/compose/<stack>/<action>")
+@login_required
+def api_compose_action(stack: str, action: str):
+    try:
+        msg = compose.stack_action(stack, action)
+        return jsonify({"ok": True, "message": msg})
+    except compose.ComposeError as exc:
+        return jsonify({"error": str(exc)}), 500
+
+# ---------------------------------------------------------------------------
+# Systemd service management
+# ---------------------------------------------------------------------------
+
+@app.get("/api/systemd")
+@login_required
+def api_systemd_list():
+    units = [
+        svc.get("systemd")
+        for svc in get_services()
+        if svc.get("systemd")
+    ]
+    # Also include well-known platform services if not already listed
+    defaults = ["docker", "caddy", "ssh", "ufw", "tailscaled", "wg-quick@wg0"]
+    for u in defaults:
+        if u not in units:
+            units.append(u)
+    statuses = []
+    for unit in units:
+        try:
+            statuses.append(systemd.get_service_status(unit))
+        except systemd.SystemdError as exc:
+            statuses.append({"unit": unit, "active": "unknown", "error": str(exc)})
+    return jsonify({"services": statuses})
+
+
+@app.post("/api/systemd/<unit>/<action>")
+@login_required
+def api_systemd_action(unit: str, action: str):
+    try:
+        systemd.service_action(unit, action)
+        return jsonify({"ok": True})
+    except (systemd.SystemdError, ValueError) as exc:
+        return jsonify({"error": str(exc)}), 500
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 def main() -> None:
     host = os.environ.get("DASHBOARD_HOST", "0.0.0.0")

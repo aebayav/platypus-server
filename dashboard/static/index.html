@@ -6,791 +6,615 @@
 <title>Platypus Dashboard</title>
 <style>
   :root {
-    --bg: #0f1115;
-    --card: #181b22;
-    --border: #262a33;
-    --text: #e6e8eb;
-    --muted: #8b93a1;
-    --green: #2ecc71;
-    --red: #e74c3c;
-    --yellow: #f1c40f;
-    --accent: #4da3ff;
+    --bg: #0f1115; --card: #181b22; --border: #262a33;
+    --text: #e6e8eb; --muted: #8b93a1;
+    --green: #2ecc71; --red: #e74c3c; --yellow: #f1c40f; --accent: #4da3ff;
     --bar-bg: #262a33;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    padding: 24px;
-    min-height: 100vh;
-  }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; padding: 24px; }
 
-  /* ── Header ─────────────────────────────────── */
-  header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 28px;
-  }
+  /* Header */
+  header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 28px; }
   h1 { font-size: 22px; margin-bottom: 4px; }
   .subtitle { color: var(--muted); font-size: 13px; }
+  .header-right { display: flex; align-items: center; gap: 16px; }
+  .logout-btn { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 7px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
+  .logout-btn:hover { color: var(--text); border-color: var(--text); }
 
-  #conn-banner {
-    display: none;
-    background: #3d1a1a;
-    border: 1px solid var(--red);
-    color: var(--red);
-    font-size: 13px;
-    padding: 8px 14px;
-    border-radius: 8px;
-    margin-bottom: 16px;
-  }
+  #conn-banner { display: none; background: #3d1a1a; border: 1px solid var(--red); color: var(--red); font-size: 13px; padding: 8px 14px; border-radius: 8px; margin-bottom: 16px; }
 
-  /* ── Metric cards ───────────────────────────── */
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-    gap: 16px;
-    margin-bottom: 32px;
-  }
-  .card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    padding: 18px;
-  }
-  .card h3 {
-    font-size: 11px;
-    color: var(--muted);
-    margin-bottom: 10px;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-  }
+  /* Metric cards */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 32px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 18px; }
+  .card h3 { font-size: 11px; color: var(--muted); margin-bottom: 10px; text-transform: uppercase; letter-spacing: .6px; }
   .value { font-size: 26px; font-weight: 600; line-height: 1; }
   .badge { font-size: 12px; color: var(--muted); margin-top: 6px; }
-
-  .bar {
-    height: 6px;
-    background: var(--bar-bg);
-    border-radius: 3px;
-    overflow: hidden;
-    margin-top: 14px;
-  }
-  .bar > div {
-    height: 100%;
-    width: 0;
-    border-radius: 3px;
-    transition: width 0.5s ease, background 0.5s ease;
-    background: var(--green);
-  }
+  .bar { height: 6px; background: var(--bar-bg); border-radius: 3px; overflow: hidden; margin-top: 14px; }
+  .bar > div { height: 100%; width: 0; border-radius: 3px; transition: width .5s,background .5s; background: var(--green); }
   .bar > div.warn { background: var(--yellow); }
   .bar > div.crit { background: var(--red); }
 
+  /* Sparkline */
+  .sparkline { width: 100%; height: 48px; margin-top: 10px; display: block; }
+
+  /* Temps / Net */
   .temp-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-  .temp-chip {
-    border: 1px solid var(--border);
-    padding: 5px 10px;
-    border-radius: 8px;
-    font-size: 13px;
-    background: var(--bg);
-  }
+  .temp-chip { border: 1px solid var(--border); padding: 5px 10px; border-radius: 8px; font-size: 13px; background: var(--bg); }
   .temp-chip.warm { border-color: var(--yellow); color: var(--yellow); }
   .temp-chip.hot  { border-color: var(--red);    color: var(--red); }
-
   .net-row { display: flex; gap: 20px; margin-top: 8px; }
   .net-item { font-size: 13px; }
   .net-label { color: var(--muted); font-size: 11px; }
 
-  /* ── Section header ─────────────────────────── */
-  .section-header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 8px 0 16px;
-  }
+  /* Section headers */
+  .section-header { display: flex; align-items: center; gap: 10px; margin: 8px 0 16px; }
   .section-header h2 { font-size: 15px; white-space: nowrap; }
-  .section-header::after {
-    content: "";
-    flex: 1;
-    height: 1px;
-    background: var(--border);
-  }
+  .section-header::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 
-  /* ── Forms ──────────────────────────────────── */
-  .tool-form {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 14px;
-    flex-wrap: wrap;
-  }
-  .tool-form input {
-    background: var(--bg);
-    border: 1px solid var(--border);
-    color: var(--text);
-    border-radius: 8px;
-    padding: 8px 10px;
-    font-size: 13px;
-    flex: 1;
-    min-width: 140px;
-  }
+  /* Forms */
+  .tool-form { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  .tool-form input { background: var(--bg); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 8px 10px; font-size: 13px; flex: 1; min-width: 140px; }
   .tool-form input:focus { outline: none; border-color: var(--accent); }
-  .tool-form button {
-    background: var(--accent);
-    color: #fff;
-    border: none;
-    border-radius: 8px;
-    padding: 8px 18px;
-    cursor: pointer;
-    font-size: 13px;
-    font-weight: 600;
-    white-space: nowrap;
-  }
-  .tool-form button:hover { opacity: 0.88; }
-  .tool-form button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .tool-form button { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 8px 18px; cursor: pointer; font-size: 13px; font-weight: 600; white-space: nowrap; }
+  .tool-form button:hover { opacity: .88; }
+  .tool-form button:disabled { opacity: .5; cursor: not-allowed; }
 
-  /* ── Container cards ────────────────────────── */
-  .containers {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-    gap: 12px;
-    margin-bottom: 32px;
-  }
-  .container-card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 14px 16px;
-  }
-  .container-top {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 10px;
-  }
+  /* Containers */
+  .containers { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 12px; margin-bottom: 32px; }
+  .container-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .container-top { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
   .cinfo { flex: 1; min-width: 0; }
   .cname { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .cbadge { font-size: 12px; color: var(--muted); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
-  .state-pill {
-    font-size: 11px;
-    font-weight: 600;
-    padding: 3px 8px;
-    border-radius: 20px;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
+  .state-pill { font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 20px; white-space: nowrap; flex-shrink: 0; }
   .state-pill.running    { background: #1a3a27; color: var(--green); }
   .state-pill.exited,
   .state-pill.dead       { background: #3d1a1a; color: var(--red); }
   .state-pill.created,
   .state-pill.paused     { background: #3a3010; color: var(--yellow); }
   .state-pill.restarting { background: #1a2e3a; color: var(--accent); }
-
-  /* Per-container mini stats */
-  .cstats {
-    display: flex;
-    gap: 16px;
-    margin-bottom: 10px;
-    font-size: 12px;
-  }
+  .cstats { display: flex; gap: 16px; margin-bottom: 10px; font-size: 12px; }
   .cstat-item { display: flex; flex-direction: column; gap: 2px; }
   .cstat-label { color: var(--muted); font-size: 11px; }
-  .cstat-bar {
-    height: 4px;
-    width: 80px;
-    background: var(--bar-bg);
-    border-radius: 2px;
-    overflow: hidden;
-    margin-top: 3px;
-  }
-  .cstat-bar > div {
-    height: 100%;
-    background: var(--accent);
-    border-radius: 2px;
-    transition: width 0.4s;
-  }
+  .cstat-bar { height: 4px; width: 80px; background: var(--bar-bg); border-radius: 2px; overflow: hidden; margin-top: 3px; }
+  .cstat-bar > div { height: 100%; background: var(--accent); border-radius: 2px; transition: width .4s; }
   .cstat-bar > div.warn { background: var(--yellow); }
   .cstat-bar > div.crit { background: var(--red); }
 
-  /* Action buttons */
+  /* Buttons */
   .actions { display: flex; gap: 6px; flex-wrap: wrap; }
-  .btn {
-    background: var(--border);
-    color: var(--text);
-    border: none;
-    border-radius: 6px;
-    padding: 5px 10px;
-    font-size: 12px;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  .btn:hover { opacity: 0.8; }
+  .btn { background: var(--border); color: var(--text); border: none; border-radius: 6px; padding: 5px 10px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+  .btn:hover { opacity: .8; }
   .btn.primary { background: #1a2e3a; color: var(--accent); border: 1px solid var(--accent); }
   .btn.danger  { background: #3d1a1a; color: var(--red);    border: 1px solid var(--red); }
   .btn.danger:hover  { background: var(--red);    color: #fff; }
   .btn.primary:hover { background: var(--accent); color: #fff; }
+  .btn.success { background: #1a3a27; color: var(--green); border: 1px solid var(--green); }
+  .btn.success:hover { background: var(--green); color: #fff; }
 
-  /* ── Images table ───────────────────────────── */
-  .images-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-    margin-bottom: 32px;
-  }
-  .images-table th {
-    text-align: left;
-    color: var(--muted);
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    padding: 0 10px 10px;
-    border-bottom: 1px solid var(--border);
-  }
-  .images-table td {
-    padding: 10px;
-    border-bottom: 1px solid var(--border);
-    color: var(--text);
-  }
+  /* Images table */
+  .images-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 32px; }
+  .images-table th { text-align: left; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; padding: 0 10px 10px; border-bottom: 1px solid var(--border); }
+  .images-table td { padding: 10px; border-bottom: 1px solid var(--border); }
   .images-table tr:last-child td { border-bottom: none; }
   .images-table tr:hover td { background: var(--card); }
   .img-id { font-family: monospace; color: var(--muted); }
 
-  /* ── Services ───────────────────────────────── */
-  .services {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-    gap: 12px;
-    margin-bottom: 32px;
-  }
-  .service {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 14px 16px;
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-left-width: 3px;
-    border-radius: 10px;
-    transition: border-color 0.3s;
-  }
+  /* Stacks */
+  .stacks-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px,1fr)); gap: 12px; margin-bottom: 32px; }
+  .stack-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; }
+  .stack-name { font-weight: 600; margin-bottom: 4px; }
+  .stack-meta { font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+
+  /* Systemd services */
+  .svc-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 32px; }
+  .svc-table th { text-align: left; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; padding: 0 10px 10px; border-bottom: 1px solid var(--border); }
+  .svc-table td { padding: 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+  .svc-table tr:last-child td { border-bottom: none; }
+  .svc-table tr:hover td { background: var(--card); }
+
+  /* Processes table */
+  .proc-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 32px; }
+  .proc-table th { text-align: left; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; padding: 0 10px 10px; border-bottom: 1px solid var(--border); }
+  .proc-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  .proc-table tr:last-child td { border-bottom: none; }
+  .proc-table tr:hover td { background: var(--card); }
+  .proc-pid { font-family: monospace; color: var(--muted); }
+
+  /* Firewall */
+  .fw-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 32px; }
+  .fw-table th { text-align: left; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .5px; padding: 0 10px 10px; border-bottom: 1px solid var(--border); }
+  .fw-table td { padding: 10px; border-bottom: 1px solid var(--border); }
+  .fw-table tr:last-child td { border-bottom: none; }
+  .fw-status { font-size: 13px; margin-bottom: 12px; }
+  .fw-status.active { color: var(--green); }
+  .fw-status.inactive { color: var(--red); }
+
+  /* Services health */
+  .services { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-bottom: 32px; }
+  .service { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px; background: var(--card); border: 1px solid var(--border); border-left-width: 3px; border-radius: 10px; }
   .service.up      { border-left-color: var(--green); }
   .service.down    { border-left-color: var(--red); }
   .service.unknown { border-left-color: var(--yellow); }
   .sname { font-weight: 600; font-size: 14px; }
   .surl  { font-size: 12px; color: var(--muted); margin-top: 2px; }
-  .scode {
-    font-size: 11px;
-    font-weight: 600;
-    padding: 2px 7px;
-    border-radius: 20px;
-    margin-left: 8px;
-    flex-shrink: 0;
-  }
+  .scode { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 20px; margin-left: 8px; flex-shrink: 0; }
   .scode.up      { background: #1a3a27; color: var(--green); }
   .scode.down    { background: #3d1a1a; color: var(--red); }
   .scode.unknown { background: #3a3010; color: var(--yellow); }
 
+  /* Active state pill */
+  .active-pill { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 20px; display: inline-block; }
+  .active-pill.active   { background: #1a3a27; color: var(--green); }
+  .active-pill.inactive { background: #3d1a1a; color: var(--red); }
+  .active-pill.unknown,
+  .active-pill.failed   { background: #3a3010; color: var(--yellow); }
+
   .empty { color: var(--muted); font-size: 13px; padding: 4px 0; }
+  #pull-status { font-size: 13px; margin-left: 8px; color: var(--muted); }
 
-  /* ── Log Modal ──────────────────────────────── */
-  .modal-overlay {
-    display: none;
-    position: fixed;
-    inset: 0;
-    background: rgba(0,0,0,0.7);
-    z-index: 100;
-    align-items: center;
-    justify-content: center;
-  }
+  /* Log modal */
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.7); z-index: 100; align-items: center; justify-content: center; }
   .modal-overlay.open { display: flex; }
-  .modal {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 12px;
-    width: min(860px, 95vw);
-    max-height: 80vh;
-    display: flex;
-    flex-direction: column;
-  }
-  .modal-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 16px 20px;
-    border-bottom: 1px solid var(--border);
-    flex-shrink: 0;
-  }
+  .modal { background: var(--card); border: 1px solid var(--border); border-radius: 12px; width: min(860px,95vw); max-height: 80vh; display: flex; flex-direction: column; }
+  .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
   .modal-title { font-weight: 600; font-size: 15px; }
-  .modal-close {
-    background: none;
-    border: none;
-    color: var(--muted);
-    font-size: 20px;
-    cursor: pointer;
-    line-height: 1;
-    padding: 0 4px;
-  }
+  .modal-close { background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; line-height: 1; padding: 0 4px; }
   .modal-close:hover { color: var(--text); }
-  .modal-body {
-    flex: 1;
-    overflow-y: auto;
-    padding: 14px 20px;
-  }
-  .log-output {
-    font-family: "Fira Code", "Cascadia Code", "Consolas", monospace;
-    font-size: 12px;
-    line-height: 1.6;
-    color: #c9d1d9;
-    white-space: pre-wrap;
-    word-break: break-all;
-  }
-  .log-empty { color: var(--muted); font-size: 13px; }
-
-  /* pull status message */
-  #pull-status {
-    font-size: 13px;
-    margin-left: 8px;
-    color: var(--muted);
-  }
+  .modal-body { flex: 1; overflow-y: auto; padding: 14px 20px; }
+  .log-output { font-family: "Fira Code","Cascadia Code","Consolas",monospace; font-size: 12px; line-height: 1.6; color: #c9d1d9; white-space: pre-wrap; word-break: break-all; }
 </style>
 </head>
 <body>
 
-  <div id="conn-banner">Connection lost — retrying…</div>
+<div id="conn-banner">Connection lost — retrying…</div>
 
-  <header>
-    <div>
-      <h1>Platypus Dashboard</h1>
-      <div class="subtitle" id="last-updated">connecting…</div>
-    </div>
+<header>
+  <div>
+    <h1>Platypus Dashboard</h1>
+    <div class="subtitle" id="last-updated">connecting…</div>
+  </div>
+  <div class="header-right">
     <div class="subtitle" id="uptime">—</div>
-  </header>
-
-  <!-- Metric cards -->
-  <div class="grid">
-    <div class="card">
-      <h3>CPU</h3>
-      <div class="value" id="cpu">—</div>
-      <div class="badge" id="cpu-cores">—</div>
-      <div class="badge" id="load">—</div>
-      <div class="bar"><div id="cpu-bar"></div></div>
-    </div>
-    <div class="card">
-      <h3>Memory</h3>
-      <div class="value" id="mem">—</div>
-      <div class="badge" id="mem-pct">—</div>
-      <div class="bar"><div id="mem-bar"></div></div>
-    </div>
-    <div class="card">
-      <h3>Disk</h3>
-      <div class="value" id="disk">—</div>
-      <div class="badge" id="disk-free">—</div>
-      <div class="bar"><div id="disk-bar"></div></div>
-    </div>
-    <div class="card">
-      <h3>Temperature</h3>
-      <div class="temp-grid" id="temps"><span class="badge">no sensors</span></div>
-    </div>
-    <div class="card">
-      <h3>Network</h3>
-      <div class="net-row">
-        <div class="net-item">
-          <div class="net-label">Received</div>
-          <div id="net-recv">—</div>
-        </div>
-        <div class="net-item">
-          <div class="net-label">Sent</div>
-          <div id="net-sent">—</div>
-        </div>
-      </div>
-      <div class="badge" id="net-packets" style="margin-top:10px">—</div>
-    </div>
+    <button class="logout-btn" onclick="logout()">Sign out</button>
   </div>
+</header>
 
-  <!-- Containers -->
-  <div class="section-header"><h2>Containers</h2></div>
-  <form class="tool-form" id="run-form">
-    <input id="run-image" list="image-list" placeholder="image (e.g. nginx:latest)" autocomplete="off">
-    <datalist id="image-list"></datalist>
-    <input id="run-name"  placeholder="name (optional)">
-    <input id="run-ports" placeholder="ports (e.g. 8080:80)">
-    <button type="submit">Run Container</button>
-  </form>
-  <div class="containers" id="containers"><div class="empty">loading…</div></div>
-
-  <!-- Images -->
-  <div class="section-header"><h2>Images</h2></div>
-  <form class="tool-form" id="pull-form">
-    <input id="pull-image" placeholder="image to pull (e.g. nginx:latest)">
-    <button type="submit" id="pull-btn">Pull</button>
-    <span id="pull-status"></span>
-  </form>
-  <table class="images-table" id="images-table">
-    <thead>
-      <tr>
-        <th>Image</th>
-        <th>ID</th>
-        <th>Size</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody id="images-body"><tr><td colspan="4" class="empty" style="padding:12px 10px">loading…</td></tr></tbody>
-  </table>
-
-  <!-- Services -->
-  <div class="section-header"><h2>Services</h2></div>
-  <div class="services" id="services"></div>
-
-  <!-- Log Modal -->
-  <div class="modal-overlay" id="log-modal">
-    <div class="modal">
-      <div class="modal-header">
-        <span class="modal-title" id="log-modal-title">Logs</span>
-        <button class="modal-close" id="log-close">&times;</button>
-      </div>
-      <div class="modal-body">
-        <div class="log-output" id="log-content"></div>
-      </div>
-    </div>
+<!-- Metric cards -->
+<div class="grid">
+  <div class="card">
+    <h3>CPU</h3>
+    <div class="value" id="cpu">—</div>
+    <div class="badge" id="cpu-cores">—</div>
+    <div class="badge" id="load">—</div>
+    <div class="bar"><div id="cpu-bar"></div></div>
+    <canvas class="sparkline" id="cpu-chart"></canvas>
   </div>
+  <div class="card">
+    <h3>Memory</h3>
+    <div class="value" id="mem">—</div>
+    <div class="badge" id="mem-pct">—</div>
+    <div class="bar"><div id="mem-bar"></div></div>
+    <canvas class="sparkline" id="mem-chart"></canvas>
+  </div>
+  <div class="card">
+    <h3>Disk</h3>
+    <div class="value" id="disk">—</div>
+    <div class="badge" id="disk-free">—</div>
+    <div class="bar"><div id="disk-bar"></div></div>
+  </div>
+  <div class="card">
+    <h3>Temperature</h3>
+    <div class="temp-grid" id="temps"><span class="badge">no sensors</span></div>
+  </div>
+  <div class="card">
+    <h3>Network</h3>
+    <div class="net-row">
+      <div class="net-item"><div class="net-label">Received</div><div id="net-recv">—</div></div>
+      <div class="net-item"><div class="net-label">Sent</div><div id="net-sent">—</div></div>
+    </div>
+    <div class="badge" id="net-packets" style="margin-top:10px">—</div>
+  </div>
+</div>
+
+<!-- Containers -->
+<div class="section-header"><h2>Containers</h2></div>
+<form class="tool-form" id="run-form">
+  <input id="run-image" list="image-list" placeholder="image (e.g. nginx:latest)" autocomplete="off">
+  <datalist id="image-list"></datalist>
+  <input id="run-name"  placeholder="name (optional)">
+  <input id="run-ports" placeholder="ports (e.g. 8080:80)">
+  <button type="submit">Run Container</button>
+</form>
+<div class="containers" id="containers"><div class="empty">loading…</div></div>
+
+<!-- Images -->
+<div class="section-header"><h2>Images</h2></div>
+<form class="tool-form" id="pull-form">
+  <input id="pull-image" placeholder="image to pull (e.g. nginx:latest)">
+  <button type="submit" id="pull-btn">Pull</button>
+  <span id="pull-status"></span>
+</form>
+<table class="images-table">
+  <thead><tr><th>Image</th><th>ID</th><th>Size</th><th></th></tr></thead>
+  <tbody id="images-body"><tr><td colspan="4" class="empty" style="padding:12px 10px">loading…</td></tr></tbody>
+</table>
+
+<!-- Docker Compose stacks -->
+<div class="section-header"><h2>Stacks</h2></div>
+<div class="stacks-grid" id="stacks"><div class="empty">loading…</div></div>
+
+<!-- Systemd services -->
+<div class="section-header"><h2>System Services</h2></div>
+<table class="svc-table">
+  <thead><tr><th>Unit</th><th>Description</th><th>State</th><th>Enabled</th><th></th></tr></thead>
+  <tbody id="systemd-body"><tr><td colspan="5" class="empty" style="padding:12px 10px">loading…</td></tr></tbody>
+</table>
+
+<!-- Processes -->
+<div class="section-header"><h2>Processes</h2></div>
+<table class="proc-table">
+  <thead><tr><th>PID</th><th>Name</th><th>CPU %</th><th>Mem %</th><th>Status</th></tr></thead>
+  <tbody id="proc-body"><tr><td colspan="5" class="empty" style="padding:12px 10px">loading…</td></tr></tbody>
+</table>
+
+<!-- UFW Firewall -->
+<div class="section-header"><h2>Firewall</h2></div>
+<div class="fw-status" id="fw-status">loading…</div>
+<table class="fw-table">
+  <thead><tr><th>To</th><th>Action</th><th>From</th></tr></thead>
+  <tbody id="fw-body"><tr><td colspan="3" class="empty" style="padding:12px 10px">loading…</td></tr></tbody>
+</table>
+
+<!-- Service health checks -->
+<div class="section-header"><h2>Service Health</h2></div>
+<div class="services" id="services"></div>
+
+<!-- Log modal -->
+<div class="modal-overlay" id="log-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="log-modal-title">Logs</span>
+      <button class="modal-close" id="log-close">&times;</button>
+    </div>
+    <div class="modal-body"><div class="log-output" id="log-content"></div></div>
+  </div>
+</div>
 
 <script>
-  /* ── Helpers ──────────────────────────────────────────────────── */
-  function fmtBytes(n) {
-    if (n == null) return "—";
-    const units = ["B", "KB", "MB", "GB", "TB"];
-    let i = 0;
-    while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
-    return n.toFixed(1) + " " + units[i];
-  }
+/* ── Helpers ─────────────────────────────────── */
+function fmtBytes(n) {
+  if (n == null) return "—";
+  const u = ["B","KB","MB","GB","TB"]; let i=0;
+  while (n>=1024 && i<u.length-1){n/=1024;i++;}
+  return n.toFixed(1)+" "+u[i];
+}
+function fmtUptime(s) {
+  if (!s) return "—";
+  const d=Math.floor(s/86400),h=Math.floor((s%86400)/3600),m=Math.floor((s%3600)/60);
+  return "uptime "+(d?d+"d ":"")+h+"h "+m+"m";
+}
+function setBar(id, pct) {
+  const el=document.getElementById(id); if(!el) return;
+  const v=Math.max(0,Math.min(100,pct));
+  el.style.width=v+"%";
+  el.classList.remove("warn","crit");
+  if(v>=90) el.classList.add("crit");
+  else if(v>=70) el.classList.add("warn");
+}
+function colorBar(el, pct) {
+  if(!el) return;
+  el.style.width=Math.max(0,Math.min(100,pct))+"%";
+  el.classList.remove("warn","crit");
+  if(pct>=90) el.classList.add("crit");
+  else if(pct>=70) el.classList.add("warn");
+}
 
-  function fmtUptime(s) {
-    if (s == null) return "—";
-    const d = Math.floor(s / 86400);
-    const h = Math.floor((s % 86400) / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    return "uptime " + (d ? d + "d " : "") + h + "h " + m + "m";
-  }
-
-  function setBar(id, pct) {
-    const el = document.getElementById(id);
-    if (!el) return;
-    const v = Math.max(0, Math.min(100, pct));
-    el.style.width = v + "%";
-    el.classList.remove("warn", "crit");
-    if (v >= 90) el.classList.add("crit");
-    else if (v >= 70) el.classList.add("warn");
-  }
-
-  function colorBar(el, pct) {
-    el.style.width = Math.max(0, Math.min(100, pct)) + "%";
-    el.classList.remove("warn", "crit");
-    if (pct >= 90) el.classList.add("crit");
-    else if (pct >= 70) el.classList.add("warn");
-  }
-
-  /* ── System metrics ───────────────────────────────────────────── */
-  function render(data) {
-    const m = data.metrics || {};
-
-    const cpuPct = m.cpu_percent ?? null;
-    document.getElementById("cpu").textContent = cpuPct != null ? cpuPct.toFixed(1) + "%" : "—";
-    document.getElementById("cpu-cores").textContent = m.cpu_count ? m.cpu_count + " cores" : "—";
-    document.getElementById("load").textContent = m.load_avg ? "load avg  " + m.load_avg.join(" / ") : "";
-    setBar("cpu-bar", cpuPct || 0);
-
-    const mem = m.memory || {};
-    document.getElementById("mem").textContent = mem.used != null ? fmtBytes(mem.used) + " / " + fmtBytes(mem.total) : "—";
-    document.getElementById("mem-pct").textContent = mem.percent != null ? mem.percent.toFixed(1) + "% used" : "—";
-    setBar("mem-bar", mem.percent || 0);
-
-    const disk = m.disk || {};
-    document.getElementById("disk").textContent = disk.used != null ? fmtBytes(disk.used) + " / " + fmtBytes(disk.total) : "—";
-    document.getElementById("disk-free").textContent = disk.free != null ? fmtBytes(disk.free) + " free" : "—";
-    setBar("disk-bar", disk.percent || 0);
-
-    const temps = m.temperatures || {};
-    const tempEl = document.getElementById("temps");
-    const keys = Object.keys(temps);
-    if (keys.length) {
-      tempEl.innerHTML = keys.map(k => {
-        const v = temps[k];
-        const cls = v >= 85 ? "hot" : v >= 70 ? "warm" : "";
-        return `<span class="temp-chip ${cls}">${k}: <b>${v}°C</b></span>`;
-      }).join("");
-    } else {
-      tempEl.innerHTML = '<span class="badge">no sensors</span>';
-    }
-
-    const net = m.network || {};
-    document.getElementById("net-recv").textContent = net.bytes_recv != null ? fmtBytes(net.bytes_recv) : "—";
-    document.getElementById("net-sent").textContent = net.bytes_sent != null ? fmtBytes(net.bytes_sent) : "—";
-    document.getElementById("net-packets").textContent = net.packets_recv != null
-      ? `${net.packets_recv.toLocaleString()} pkts in  /  ${net.packets_sent.toLocaleString()} pkts out` : "—";
-
-    document.getElementById("uptime").textContent = fmtUptime(m.uptime_seconds);
-
-    const services = data.services || [];
-    document.getElementById("services").innerHTML = services.length
-      ? services.map(s => {
-          const sc = s.status || "unknown";
-          const code = s.http_code ? s.http_code : (sc === "up" ? "UP" : sc === "down" ? "DOWN" : "?");
-          return `<div class="service ${sc}">
-            <div><div class="sname">${s.name}</div><div class="surl">${s.url || ""}</div></div>
-            <span class="scode ${sc}">${code}</span>
-          </div>`;
-        }).join("")
-      : '<div class="empty">No services configured.</div>';
-
-    document.getElementById("conn-banner").style.display = "none";
-    const upd = document.getElementById("last-updated");
-    upd.textContent = "updated " + new Date().toLocaleTimeString();
-    upd.style.color = "";
-  }
-
-  async function refresh() {
-    try {
-      const res = await fetch("/api/status");
-      if (!res.ok) throw new Error();
-      render(await res.json());
-    } catch {
-      document.getElementById("conn-banner").style.display = "block";
-      const upd = document.getElementById("last-updated");
-      upd.textContent = "connection error";
-      upd.style.color = "var(--red)";
-    }
-  }
-
-  /* ── Containers ───────────────────────────────────────────────── */
-  async function loadContainerStats(cid, card) {
-    try {
-      const res = await fetch(`/api/containers/${cid}/stats`);
-      if (!res.ok) return;
-      const s = await res.json();
-      const cpuPct = parseFloat(s.cpu_percent) || 0;
-      const memPct = parseFloat(s.mem_percent) || 0;
-      card.querySelector(".cstat-cpu-val").textContent = cpuPct.toFixed(1) + "%";
-      card.querySelector(".cstat-mem-val").textContent = s.mem_usage || "—";
-      colorBar(card.querySelector(".cstat-cpu-bar div"), cpuPct);
-      colorBar(card.querySelector(".cstat-mem-bar div"), memPct);
-    } catch { /* silent */ }
-  }
-
-  function renderContainers(containers) {
-    const el = document.getElementById("containers");
-    if (!containers.length) {
-      el.innerHTML = '<div class="empty">No containers found.</div>';
-      return;
-    }
-    el.innerHTML = containers.map(c => {
-      const sc = c.state || "unknown";
-      const label = sc.charAt(0).toUpperCase() + sc.slice(1);
-      const isRunning = sc === "running";
-      return `
-        <div class="container-card" data-id="${c.id}" data-state="${sc}">
-          <div class="container-top">
-            <div class="cinfo">
-              <div class="cname">${c.name}</div>
-              <div class="cbadge">${c.image}${c.ports ? " · " + c.ports : ""}</div>
-            </div>
-            <span class="state-pill ${sc}">${label}</span>
-          </div>
-          ${isRunning ? `
-          <div class="cstats">
-            <div class="cstat-item">
-              <span class="cstat-label">CPU</span>
-              <span class="cstat-cpu-val" style="font-size:12px">…</span>
-              <div class="cstat-bar cstat-cpu-bar"><div></div></div>
-            </div>
-            <div class="cstat-item">
-              <span class="cstat-label">Memory</span>
-              <span class="cstat-mem-val" style="font-size:12px">…</span>
-              <div class="cstat-bar cstat-mem-bar"><div></div></div>
-            </div>
-          </div>` : ""}
-          <div class="actions">
-            ${!isRunning ? `<button class="btn" data-act="start"   data-id="${c.id}">Start</button>` : ""}
-            ${isRunning  ? `<button class="btn" data-act="stop"    data-id="${c.id}">Stop</button>` : ""}
-            ${isRunning  ? `<button class="btn" data-act="restart" data-id="${c.id}">Restart</button>` : ""}
-            <button class="btn primary" data-act="logs"   data-id="${c.id}" data-name="${c.name}">Logs</button>
-            <button class="btn danger"  data-act="remove" data-id="${c.id}">Remove</button>
-          </div>
-        </div>`;
-    }).join("");
-
-    // Attach events
-    el.querySelectorAll("button[data-act]").forEach(btn => {
-      btn.addEventListener("click", () => containerAction(btn.dataset.act, btn.dataset.id, btn.dataset.name));
-    });
-
-    // Fetch stats for running containers
-    el.querySelectorAll(".container-card[data-state='running']").forEach(card => {
-      loadContainerStats(card.dataset.id, card);
-    });
-  }
-
-  function renderImageList(images) {
-    document.getElementById("image-list").innerHTML = images
-      .map(i => `<option value="${i.name}">`).join("");
-  }
-
-  async function containerAction(action, id, name) {
-    if (action === "remove" && !confirm(`Remove container "${name || id}"?`)) return;
-
-    if (action === "logs") {
-      openLogs(id, name || id);
-      return;
-    }
-
-    const url = action === "remove"
-      ? `/api/containers/${id}`
-      : `/api/containers/${id}/${action}`;
-    const method = action === "remove" ? "DELETE" : "POST";
-    try {
-      const res = await fetch(url, { method });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        alert(d.error || "Operation failed.");
-      }
-    } catch { alert("Connection error."); }
-    loadContainers();
-  }
-
-  async function loadContainers() {
-    try {
-      const [cres, ires] = await Promise.all([
-        fetch("/api/containers"),
-        fetch("/api/images"),
-      ]);
-      const containers = (await cres.json()).containers || [];
-      const images     = (await ires.json()).images || [];
-      renderContainers(containers);
-      renderImageList(images);
-      renderImages(images);
-    } catch {
-      document.getElementById("containers").innerHTML =
-        '<div class="empty" style="color:var(--red)">Docker unavailable.</div>';
-    }
-  }
-
-  document.getElementById("run-form").addEventListener("submit", async ev => {
-    ev.preventDefault();
-    const payload = {
-      image: document.getElementById("run-image").value,
-      name:  document.getElementById("run-name").value,
-      ports: document.getElementById("run-ports").value,
-    };
-    try {
-      const res = await fetch("/api/containers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) alert(d.error || "Run failed.");
-      else { document.getElementById("run-form").reset(); loadContainers(); }
-    } catch { alert("Connection error."); }
+/* ── Sparkline (Canvas API) ──────────────────── */
+function drawSparkline(canvasId, data, color="#4da3ff") {
+  const canvas=document.getElementById(canvasId);
+  if(!canvas||!data.length) return;
+  const dpr=window.devicePixelRatio||1;
+  const w=canvas.offsetWidth||canvas.parentElement.clientWidth;
+  const h=48;
+  canvas.width=w*dpr; canvas.height=h*dpr;
+  canvas.style.width=w+"px"; canvas.style.height=h+"px";
+  const ctx=canvas.getContext("2d");
+  ctx.scale(dpr,dpr);
+  ctx.clearRect(0,0,w,h);
+  if(data.length<2) return;
+  ctx.beginPath();
+  ctx.strokeStyle=color; ctx.lineWidth=1.5;
+  data.forEach((v,i)=>{
+    const x=(i/(data.length-1))*w;
+    const y=h-Math.max(0,Math.min(100,v))/100*h;
+    i===0?ctx.moveTo(x,y):ctx.lineTo(x,y);
   });
+  ctx.stroke();
+  // fill area
+  ctx.lineTo(w,h); ctx.lineTo(0,h); ctx.closePath();
+  ctx.fillStyle=color+"20"; ctx.fill();
+}
 
-  /* ── Images ───────────────────────────────────────────────────── */
-  function renderImages(images) {
-    const tbody = document.getElementById("images-body");
-    if (!images.length) {
-      tbody.innerHTML = '<tr><td colspan="4" class="empty" style="padding:12px 10px">No images found.</td></tr>';
-      return;
-    }
-    tbody.innerHTML = images.map(i => `
-      <tr>
-        <td>${i.name}</td>
-        <td class="img-id">${i.id}</td>
-        <td>${i.size}</td>
-        <td><button class="btn danger" data-img-id="${i.id}" data-img-name="${i.name}">Remove</button></td>
-      </tr>`).join("");
-    tbody.querySelectorAll("button[data-img-id]").forEach(btn => {
-      btn.addEventListener("click", () => removeImage(btn.dataset.imgId, btn.dataset.imgName));
-    });
-  }
+/* 401 redirect interceptor */
+async function apiFetch(url, opts={}) {
+  const res=await fetch(url,opts);
+  if(res.status===401){window.location.href="/login";return null;}
+  return res;
+}
 
-  async function removeImage(id, name) {
-    if (!confirm(`Remove image "${name}"?`)) return;
-    try {
-      const res = await fetch(`/api/images/${encodeURIComponent(id)}`, { method: "DELETE" });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) alert(d.error || "Remove failed.");
-      else loadContainers();
-    } catch { alert("Connection error."); }
-  }
+/* ── Auth ────────────────────────────────────── */
+async function logout(){
+  await fetch("/api/logout",{method:"POST"});
+  window.location.href="/login";
+}
 
-  const pullBtn    = document.getElementById("pull-btn");
-  const pullStatus = document.getElementById("pull-status");
+/* ── System metrics ──────────────────────────── */
+function render(data) {
+  const m=data.metrics||{};
+  const cpuPct=m.cpu_percent??null;
+  document.getElementById("cpu").textContent=cpuPct!=null?cpuPct.toFixed(1)+"%":"—";
+  document.getElementById("cpu-cores").textContent=m.cpu_count?m.cpu_count+" cores":"—";
+  document.getElementById("load").textContent=m.load_avg?"load avg  "+m.load_avg.join(" / "):"";
+  setBar("cpu-bar",cpuPct||0);
 
-  document.getElementById("pull-form").addEventListener("submit", async ev => {
-    ev.preventDefault();
-    const name = document.getElementById("pull-image").value.trim();
-    if (!name) return;
-    pullBtn.disabled = true;
-    pullStatus.textContent = "Pulling…";
-    pullStatus.style.color = "var(--muted)";
-    try {
-      const res = await fetch("/api/images/pull", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image: name }),
-      });
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        pullStatus.textContent = d.error || "Pull failed.";
-        pullStatus.style.color = "var(--red)";
-      } else {
-        pullStatus.textContent = d.message || "Done.";
-        pullStatus.style.color = "var(--green)";
-        document.getElementById("pull-image").value = "";
-        loadContainers();
-      }
-    } catch {
-      pullStatus.textContent = "Connection error.";
-      pullStatus.style.color = "var(--red)";
-    }
-    pullBtn.disabled = false;
+  const mem=m.memory||{};
+  document.getElementById("mem").textContent=mem.used!=null?fmtBytes(mem.used)+" / "+fmtBytes(mem.total):"—";
+  document.getElementById("mem-pct").textContent=mem.percent!=null?mem.percent.toFixed(1)+"% used":"—";
+  setBar("mem-bar",mem.percent||0);
+
+  const disk=m.disk||{};
+  document.getElementById("disk").textContent=disk.used!=null?fmtBytes(disk.used)+" / "+fmtBytes(disk.total):"—";
+  document.getElementById("disk-free").textContent=disk.free!=null?fmtBytes(disk.free)+" free":"—";
+  setBar("disk-bar",disk.percent||0);
+
+  const temps=m.temperatures||{},keys=Object.keys(temps),tempEl=document.getElementById("temps");
+  tempEl.innerHTML=keys.length?keys.map(k=>{const v=temps[k];const c=v>=85?"hot":v>=70?"warm":"";return`<span class="temp-chip ${c}">${k}: <b>${v}°C</b></span>`;}).join(""):'<span class="badge">no sensors</span>';
+
+  const net=m.network||{};
+  document.getElementById("net-recv").textContent=net.bytes_recv!=null?fmtBytes(net.bytes_recv):"—";
+  document.getElementById("net-sent").textContent=net.bytes_sent!=null?fmtBytes(net.bytes_sent):"—";
+  document.getElementById("net-packets").textContent=net.packets_recv!=null?`${net.packets_recv.toLocaleString()} pkts in  /  ${net.packets_sent.toLocaleString()} pkts out`:"—";
+
+  document.getElementById("uptime").textContent=fmtUptime(m.uptime_seconds);
+
+  const svcs=data.services||[];
+  document.getElementById("services").innerHTML=svcs.length
+    ?svcs.map(s=>{const sc=s.status||"unknown";const code=s.http_code?s.http_code:(sc==="up"?"UP":sc==="down"?"DOWN":"?");return`<div class="service ${sc}"><div><div class="sname">${s.name}</div><div class="surl">${s.url||""}</div></div><span class="scode ${sc}">${code}</span></div>`;}).join("")
+    :'<div class="empty">No services configured.</div>';
+
+  document.getElementById("conn-banner").style.display="none";
+  const upd=document.getElementById("last-updated");
+  upd.textContent="updated "+new Date().toLocaleTimeString(); upd.style.color="";
+}
+
+async function refresh() {
+  const res=await apiFetch("/api/status"); if(!res) return;
+  if(!res.ok){document.getElementById("conn-banner").style.display="block";return;}
+  render(await res.json());
+}
+
+/* ── Metrics history / sparklines ────────────── */
+async function refreshCharts() {
+  const res=await apiFetch("/api/metrics/history?points=120"); if(!res||!res.ok) return;
+  const d=await res.json();
+  drawSparkline("cpu-chart",d.cpu||[],"#4da3ff");
+  drawSparkline("mem-chart",d.memory||[],"#2ecc71");
+}
+
+/* ── Processes ───────────────────────────────── */
+async function refreshProcesses() {
+  const res=await apiFetch("/api/processes"); if(!res||!res.ok) return;
+  const {processes=[]}=await res.json();
+  document.getElementById("proc-body").innerHTML=processes.length
+    ?processes.map(p=>`<tr><td class="proc-pid">${p.pid}</td><td>${p.name}</td><td>${p.cpu_percent}%</td><td>${p.memory_percent}%</td><td>${p.status}</td></tr>`).join("")
+    :'<tr><td colspan="5" class="empty" style="padding:8px 10px">No processes.</td></tr>';
+}
+
+/* ── Firewall ────────────────────────────────── */
+async function refreshFirewall() {
+  const res=await apiFetch("/api/firewall"); if(!res||!res.ok) return;
+  const d=await res.json();
+  const statusEl=document.getElementById("fw-status");
+  statusEl.textContent="Status: "+(d.status||"unknown");
+  statusEl.className="fw-status "+(d.status==="active"?"active":"inactive");
+  const rules=d.rules||[];
+  document.getElementById("fw-body").innerHTML=rules.length
+    ?rules.map(r=>`<tr><td>${r.to}</td><td>${r.action}</td><td>${r.from}</td></tr>`).join("")
+    :'<tr><td colspan="3" class="empty" style="padding:10px">No rules found.</td></tr>';
+}
+
+/* ── Systemd services ────────────────────────── */
+async function refreshSystemd() {
+  const res=await apiFetch("/api/systemd"); if(!res||!res.ok) return;
+  const {services=[]}=await res.json();
+  document.getElementById("systemd-body").innerHTML=services.length
+    ?services.map(s=>{
+        const ac=s.active||"unknown";
+        const pillCls=ac==="active"?"active":ac==="inactive"?"inactive":"unknown";
+        return`<tr>
+          <td><b>${s.unit}</b></td>
+          <td style="color:var(--muted)">${s.description||""}</td>
+          <td><span class="active-pill ${pillCls}">${ac}${s.sub_state?" ("+s.sub_state+")":""}</span></td>
+          <td style="color:var(--muted);font-size:12px">${s.enabled||"—"}</td>
+          <td><div class="actions">
+            <button class="btn success" data-unit="${s.unit}" data-act="start">Start</button>
+            <button class="btn"         data-unit="${s.unit}" data-act="restart">Restart</button>
+            <button class="btn danger"  data-unit="${s.unit}" data-act="stop">Stop</button>
+          </div></td>
+        </tr>`;
+      }).join("")
+    :'<tr><td colspan="5" class="empty" style="padding:12px 10px">No systemd units found.</td></tr>';
+
+  document.querySelectorAll("#systemd-body button[data-unit]").forEach(btn=>{
+    btn.addEventListener("click",()=>systemdAction(btn.dataset.unit, btn.dataset.act));
   });
+}
 
-  /* ── Log modal ────────────────────────────────────────────────── */
-  async function openLogs(cid, name) {
-    document.getElementById("log-modal-title").textContent = `Logs — ${name}`;
-    document.getElementById("log-content").textContent = "Loading…";
-    document.getElementById("log-modal").classList.add("open");
-    try {
-      const res = await fetch(`/api/containers/${cid}/logs?tail=300`);
-      const d = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        document.getElementById("log-content").textContent = d.error || "Failed to fetch logs.";
-      } else {
-        const lines = d.lines || [];
-        document.getElementById("log-content").textContent =
-          lines.length ? lines.join("\n") : "(no output)";
-        // auto-scroll to bottom
-        const body = document.querySelector(".modal-body");
-        body.scrollTop = body.scrollHeight;
-      }
-    } catch {
-      document.getElementById("log-content").textContent = "Connection error.";
-    }
+async function systemdAction(unit, action) {
+  const res=await apiFetch(`/api/systemd/${unit}/${action}`,{method:"POST"}); if(!res) return;
+  const d=await res.json().catch(()=>({}));
+  if(!res.ok) alert(d.error||"Action failed.");
+  setTimeout(refreshSystemd, 800);
+}
+
+/* ── Docker Compose stacks ───────────────────── */
+async function refreshStacks() {
+  const res=await apiFetch("/api/compose"); if(!res||!res.ok){
+    document.getElementById("stacks").innerHTML='<div class="empty">Docker Compose unavailable or no stacks found.</div>';
+    return;
   }
-
-  document.getElementById("log-close").addEventListener("click", () => {
-    document.getElementById("log-modal").classList.remove("open");
+  const {stacks=[]}=await res.json();
+  const el=document.getElementById("stacks");
+  if(!stacks.length){el.innerHTML='<div class="empty">No stacks found in COMPOSE_DIR.</div>';return;}
+  el.innerHTML=stacks.map(s=>`
+    <div class="stack-card">
+      <div class="stack-name">${s.name}</div>
+      <div class="stack-meta">${s.running}/${s.containers} containers running</div>
+      <div class="actions">
+        <button class="btn success" data-stack="${s.name}" data-act="up">Up</button>
+        <button class="btn danger"  data-stack="${s.name}" data-act="down">Down</button>
+        <button class="btn"         data-stack="${s.name}" data-act="pull">Pull</button>
+      </div>
+    </div>`).join("");
+  el.querySelectorAll("button[data-stack]").forEach(btn=>{
+    btn.addEventListener("click",()=>stackAction(btn.dataset.stack, btn.dataset.act, btn));
   });
-  document.getElementById("log-modal").addEventListener("click", ev => {
-    if (ev.target === ev.currentTarget)
-      ev.currentTarget.classList.remove("open");
-  });
+}
 
-  /* ── Boot ─────────────────────────────────────────────────────── */
-  refresh();
+async function stackAction(name, action, btn) {
+  btn.disabled=true; btn.textContent="…";
+  const res=await apiFetch(`/api/compose/${name}/${action}`,{method:"POST"}); if(!res){btn.disabled=false;btn.textContent=action;return;}
+  const d=await res.json().catch(()=>({}));
+  if(!res.ok) alert(d.error||"Action failed.");
+  btn.disabled=false; btn.textContent=action.charAt(0).toUpperCase()+action.slice(1);
+  refreshStacks();
+}
+
+/* ── Containers ──────────────────────────────── */
+async function loadContainerStats(cid, card) {
+  const res=await apiFetch(`/api/containers/${cid}/stats`); if(!res||!res.ok) return;
+  const s=await res.json();
+  const cpuPct=parseFloat(s.cpu_percent)||0, memPct=parseFloat(s.mem_percent)||0;
+  const cv=card.querySelector(".cstat-cpu-val"); if(cv) cv.textContent=cpuPct.toFixed(1)+"%";
+  const mv=card.querySelector(".cstat-mem-val"); if(mv) mv.textContent=s.mem_usage||"—";
+  const cb=card.querySelector(".cstat-cpu-bar div"); colorBar(cb,cpuPct);
+  const mb=card.querySelector(".cstat-mem-bar div"); colorBar(mb,memPct);
+}
+
+function renderContainers(containers) {
+  const el=document.getElementById("containers");
+  if(!containers.length){el.innerHTML='<div class="empty">No containers found.</div>';return;}
+  el.innerHTML=containers.map(c=>{
+    const sc=c.state||"unknown",label=sc.charAt(0).toUpperCase()+sc.slice(1),isR=sc==="running";
+    return`<div class="container-card" data-id="${c.id}" data-state="${sc}">
+      <div class="container-top">
+        <div class="cinfo"><div class="cname">${c.name}</div><div class="cbadge">${c.image}${c.ports?" · "+c.ports:""}</div></div>
+        <span class="state-pill ${sc}">${label}</span>
+      </div>
+      ${isR?`<div class="cstats">
+        <div class="cstat-item"><span class="cstat-label">CPU</span><span class="cstat-cpu-val" style="font-size:12px">…</span><div class="cstat-bar cstat-cpu-bar"><div></div></div></div>
+        <div class="cstat-item"><span class="cstat-label">Memory</span><span class="cstat-mem-val" style="font-size:12px">…</span><div class="cstat-bar cstat-mem-bar"><div></div></div></div>
+      </div>`:""}
+      <div class="actions">
+        ${!isR?`<button class="btn success" data-act="start"   data-id="${c.id}">Start</button>`:""}
+        ${isR ?`<button class="btn"         data-act="stop"    data-id="${c.id}">Stop</button>`:""}
+        ${isR ?`<button class="btn"         data-act="restart" data-id="${c.id}">Restart</button>`:""}
+        <button class="btn primary" data-act="logs"   data-id="${c.id}" data-name="${c.name}">Logs</button>
+        <button class="btn danger"  data-act="remove" data-id="${c.id}" data-name="${c.name}">Remove</button>
+      </div>
+    </div>`;
+  }).join("");
+  el.querySelectorAll("button[data-act]").forEach(btn=>btn.addEventListener("click",()=>containerAction(btn.dataset.act,btn.dataset.id,btn.dataset.name)));
+  el.querySelectorAll(".container-card[data-state='running']").forEach(card=>loadContainerStats(card.dataset.id,card));
+}
+
+async function containerAction(action, id, name) {
+  if(action==="remove"&&!confirm(`Remove container "${name||id}"?`)) return;
+  if(action==="logs"){openLogs(id,name||id);return;}
+  const url=action==="remove"?`/api/containers/${id}`:`/api/containers/${id}/${action}`;
+  const res=await apiFetch(url,{method:action==="remove"?"DELETE":"POST"}); if(!res) return;
+  if(!res.ok){const d=await res.json().catch(()=>({}));alert(d.error||"Operation failed.");}
   loadContainers();
-  setInterval(refresh, 3000);
-  setInterval(loadContainers, 8000);
+}
+
+function renderImageList(images){
+  document.getElementById("image-list").innerHTML=images.map(i=>`<option value="${i.name}">`).join("");
+}
+function renderImages(images){
+  const tbody=document.getElementById("images-body");
+  tbody.innerHTML=images.length
+    ?images.map(i=>`<tr><td>${i.name}</td><td class="img-id">${i.id}</td><td>${i.size}</td><td><button class="btn danger" data-img-id="${i.id}" data-img-name="${i.name}">Remove</button></td></tr>`).join("")
+    :'<tr><td colspan="4" class="empty" style="padding:12px 10px">No images.</td></tr>';
+  tbody.querySelectorAll("button[data-img-id]").forEach(btn=>btn.addEventListener("click",()=>removeImage(btn.dataset.imgId,btn.dataset.imgName)));
+}
+
+async function removeImage(id,name){
+  if(!confirm(`Remove image "${name}"?`)) return;
+  const res=await apiFetch(`/api/images/${encodeURIComponent(id)}`,{method:"DELETE"}); if(!res) return;
+  const d=await res.json().catch(()=>({}));
+  if(!res.ok) alert(d.error||"Remove failed."); else loadContainers();
+}
+
+async function loadContainers(){
+  try{
+    const [cr,ir]=await Promise.all([apiFetch("/api/containers"),apiFetch("/api/images")]);
+    if(!cr||!ir) return;
+    const containers=(await cr.json()).containers||[];
+    const images=(await ir.json()).images||[];
+    renderContainers(containers); renderImageList(images); renderImages(images);
+  }catch{document.getElementById("containers").innerHTML='<div class="empty" style="color:var(--red)">Docker unavailable.</div>';}
+}
+
+document.getElementById("run-form").addEventListener("submit",async ev=>{
+  ev.preventDefault();
+  const payload={image:document.getElementById("run-image").value,name:document.getElementById("run-name").value,ports:document.getElementById("run-ports").value};
+  const res=await apiFetch("/api/containers",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)}); if(!res) return;
+  const d=await res.json().catch(()=>({}));
+  if(!res.ok) alert(d.error||"Run failed."); else{document.getElementById("run-form").reset();loadContainers();}
+});
+
+const pullBtn=document.getElementById("pull-btn"),pullStatus=document.getElementById("pull-status");
+document.getElementById("pull-form").addEventListener("submit",async ev=>{
+  ev.preventDefault();
+  const name=document.getElementById("pull-image").value.trim(); if(!name) return;
+  pullBtn.disabled=true; pullStatus.textContent="Pulling…"; pullStatus.style.color="var(--muted)";
+  const res=await apiFetch("/api/images/pull",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({image:name})}); if(!res){pullBtn.disabled=false;return;}
+  const d=await res.json().catch(()=>({}));
+  if(!res.ok){pullStatus.textContent=d.error||"Pull failed.";pullStatus.style.color="var(--red)";}
+  else{pullStatus.textContent=d.message||"Done.";pullStatus.style.color="var(--green)";document.getElementById("pull-image").value="";loadContainers();}
+  pullBtn.disabled=false;
+});
+
+/* ── Log modal ───────────────────────────────── */
+async function openLogs(cid,name){
+  document.getElementById("log-modal-title").textContent="Logs — "+name;
+  document.getElementById("log-content").textContent="Loading…";
+  document.getElementById("log-modal").classList.add("open");
+  const res=await apiFetch(`/api/containers/${cid}/logs?tail=300`); if(!res) return;
+  const d=await res.json().catch(()=>({}));
+  document.getElementById("log-content").textContent=res.ok?(d.lines||[]).join("\n")||"(no output)":d.error||"Failed.";
+  const body=document.querySelector(".modal-body"); body.scrollTop=body.scrollHeight;
+}
+document.getElementById("log-close").addEventListener("click",()=>document.getElementById("log-modal").classList.remove("open"));
+document.getElementById("log-modal").addEventListener("click",ev=>{if(ev.target===ev.currentTarget)ev.currentTarget.classList.remove("open");});
+
+/* ── Boot ────────────────────────────────────── */
+refresh();
+loadContainers();
+refreshCharts();
+refreshProcesses();
+refreshFirewall();
+refreshSystemd();
+refreshStacks();
+
+setInterval(refresh,        3000);
+setInterval(refreshCharts,  5000);
+setInterval(loadContainers, 8000);
+setInterval(refreshProcesses, 8000);
+setInterval(refreshSystemd,  10000);
+setInterval(refreshStacks,   15000);
 </script>
 </body>
 </html>
