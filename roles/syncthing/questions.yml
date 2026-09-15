@@ -1,0 +1,23 @@
+# TUI questions for the syncthing role.
+# The answer values are used as template variables in template.yml.
+
+role: syncthing
+title: "Syncthing"
+description: "Cihazlar arası sürekli dosya senkronizasyonu — syncthing/syncthing imajı"
+
+questions:
+  - id: domain
+    label: "Web arayüzü alan adı (örn: sync.example.com)"
+    type: text
+    default: sync.example.com
+
+  - id: web_port
+    label: "Web arayüzü HTTP portu"
+    type: integer
+    default: 8384
+    validate: "1024-65535"
+
+  - id: timezone
+    label: "Zaman dilimi"
+    type: text
+    default: Europe/Istanbul

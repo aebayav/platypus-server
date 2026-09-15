@@ -1,0 +1,39 @@
+# Syncthing — continuous file synchronization between devices
+#
+# Web UI: 8384 (internal), published on {answers[web_port]} (host).
+# Sync traffic: 22000/tcp + 22000/udp (data), 21027/udp (discovery).
+# Data: ./data mounted at /var/syncthing.
+
+role: syncthing
+version: "1.0"
+description: "Syncthing — cihazlar arası sürekli dosya senkronizasyonu"
+
+hooks:
+  pre_remove: []
+  post_remove: []
+  pre_apply: []
+  post_apply:
+    - "echo 'Syncthing hazır — web arayüzünden cihazlarınızı eşleştirin.'"
+
+caddy:
+  enabled: true
+  route: |
+    {answers[domain]} {{
+        reverse_proxy platypus-syncthing:8384
+    }}
+
+compose_template: |
+  services:
+    syncthing:
+      image: syncthing/syncthing:latest
+      container_name: platypus-syncthing
+      restart: unless-stopped
+      ports:
+        - "{answers[web_port]}:8384"
+        - "22000:22000/tcp"
+        - "22000:22000/udp"
+        - "21027:21027/udp"
+      environment:
+        TZ: "{answers[timezone]}"
+      volumes:
+        - ./data:/var/syncthing
