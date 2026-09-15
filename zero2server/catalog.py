@@ -47,6 +47,49 @@ CATALOG: list[dict] = [
         "command": "--interval 86400 --cleanup",
         "web": False,
     },
+    # ------------------------------------------------------------------
+    # Databases
+    # ------------------------------------------------------------------
+    {
+        "key": "postgresql",
+        "title": "PostgreSQL",
+        "description": "Relational database (v16, Alpine)",
+        "image": "postgres:16-alpine",
+        "volumes": ["postgresql_data:/var/lib/postgresql/data"],
+        "internal_port": 5432,
+        "host_ports": ["5432:5432"],
+        "web": False,
+        # Template env vars — users should override via .env file
+        "env": {
+            "POSTGRES_USER": "platypus",
+            "POSTGRES_PASSWORD": "changeme",
+            "POSTGRES_DB": "platypus",
+        },
+        "healthcheck": {
+            "test": ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-platypus}"],
+            "interval": "10s",
+            "timeout": "5s",
+            "retries": 5,
+        },
+    },
+    {
+        "key": "redis",
+        "title": "Redis",
+        "description": "In-memory data store (v7, Alpine) with persistence",
+        "image": "redis:7-alpine",
+        "volumes": ["redis_data:/data"],
+        "internal_port": 6379,
+        "host_ports": ["6379:6379"],
+        "web": False,
+        # Persistence: append-only file + RDB snapshot every 60 s if ≥ 1 key changed
+        "command": "redis-server --appendonly yes --save 60 1",
+        "healthcheck": {
+            "test": ["CMD", "redis-cli", "ping"],
+            "interval": "10s",
+            "timeout": "5s",
+            "retries": 5,
+        },
+    },
 ]
 
 CATALOG_BY_KEY = {item["key"]: item for item in CATALOG}

@@ -44,6 +44,13 @@ def build_compose(keys: list[str], domain: str) -> dict:
             service["ports"] = spec["ports"]
         elif spec.get("web") and not use_proxy:
             service["ports"] = spec["host_ports"]
+        elif not spec.get("web") and spec.get("host_ports") and not use_proxy:
+            # Non-web services with explicit host_ports (e.g. PostgreSQL, Redis)
+            service["ports"] = spec["host_ports"]
+        if spec.get("env"):
+            service["environment"] = spec["env"]
+        if spec.get("healthcheck"):
+            service["healthcheck"] = spec["healthcheck"]
         services[key] = service
 
     volumes = {name: None for name in collect_named_volumes(keys)}

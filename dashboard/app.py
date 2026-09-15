@@ -5,6 +5,7 @@ import socket
 import threading
 import time
 import urllib.request
+from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 
 from flask import Flask, jsonify, redirect, request, send_from_directory, session, url_for
@@ -26,6 +27,10 @@ app = Flask(__name__, static_folder="static", static_url_path="/static")
 app.secret_key = os.environ.get(
     "DASHBOARD_SECRET_KEY", "platypus-dashboard-secret-change-me"
 )
+
+# Record the start time for the /health uptime field.
+_APP_START: float = time.monotonic()
+_APP_START_UTC: datetime = datetime.now(timezone.utc)
 
 CHECK_TIMEOUT = 1.5
 
@@ -97,6 +102,48 @@ def _snapshot() -> dict:
     with ThreadPoolExecutor(max_workers=len(items) or 1) as pool:
         services = list(pool.map(_check_service, items))
     return {"metrics": metrics.get_metrics(), "services": services}
+
+# ---------------------------------------------------------------------------
+# Public health endpoint — no auth required (for monitoring tools)
+# ---------------------------------------------------------------------------
+
+_DASHBOARD_VERSION = "0.1.0"
+
+
+@app.get("/health")
+def health():
+    """Lightweight health check used by Uptime Kuma, Prometheus, etc.
+
+    Always returns HTTP 200.  The ``status`` field signals application health:
+    - ``"ok"``       — everything is within normal thresholds
+    - ``"degraded"`` — CPU > 95 % or disk > 90 %
+    """
+    try:
+        m = metrics.get_metrics()
+        cpu: float = m.get("cpu_percent", 0.0)
+        mem: float = m.get("memory", {}).get("percent", 0.0)
+        disk: float = m.get("disk", {}).get("percent", 0.0)
+    except Exception:  # noqa: BLE001
+        cpu = mem = disk = 0.0
+
+    degraded = cpu > 95.0 or disk > 90.0
+    uptime_seconds = round(time.monotonic() - _APP_START)
+
+    return jsonify(
+        {
+            "status": "degraded" if degraded else "ok",
+            "version": _DASHBOARD_VERSION,
+            "uptime_seconds": uptime_seconds,
+            "started_at": _APP_START_UTC.isoformat(),
+            "checks": {
+                "cpu_percent": round(cpu, 1),
+                "memory_percent": round(mem, 1),
+                "disk_percent": round(disk, 1),
+            },
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    )
+
 
 # ---------------------------------------------------------------------------
 # Auth routes (public)
