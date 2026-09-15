@@ -1,0 +1,28 @@
+# TUI questions for the jellyfin role.
+# The answer values are used as template variables in template.yml.
+
+role: jellyfin
+title: "Jellyfin"
+description: "Açık kaynak medya sunucusu — jellyfin/jellyfin imajı"
+
+questions:
+  - id: domain
+    label: "Medya sunucusu alan adı (örn: media.example.com)"
+    type: text
+    default: media.example.com
+
+  - id: web_port
+    label: "Web arayüzü HTTP portu"
+    type: integer
+    default: 8096
+    validate: "1024-65535"
+
+  - id: media_path
+    label: "Medya dosyalarının bulunduğu klasör (mutlak yol)"
+    type: text
+    default: /srv/media
+
+  - id: timezone
+    label: "Zaman dilimi"
+    type: text
+    default: Europe/Istanbul

@@ -1,0 +1,38 @@
+# Jellyfin — open-source media server (movies, TV, music)
+#
+# Web UI: 8096 (internal), published on {answers[web_port]} (host).
+# Volumes: ./config (app data), ./cache (transcode cache),
+#          {answers[media_path]} → /media (your media library).
+
+role: jellyfin
+version: "1.0"
+description: "Jellyfin — açık kaynak medya sunucusu (film, dizi, müzik)"
+
+hooks:
+  pre_remove: []
+  post_remove: []
+  pre_apply: []
+  post_apply:
+    - "echo 'Jellyfin hazır — web arayüzünden medya kitaplığınızı kurun.'"
+
+caddy:
+  enabled: true
+  route: |
+    {answers[domain]} {{
+        reverse_proxy platypus-jellyfin:8096
+    }}
+
+compose_template: |
+  services:
+    jellyfin:
+      image: jellyfin/jellyfin:latest
+      container_name: platypus-jellyfin
+      restart: unless-stopped
+      ports:
+        - "{answers[web_port]}:8096"
+      environment:
+        TZ: "{answers[timezone]}"
+      volumes:
+        - ./config:/config
+        - ./cache:/cache
+        - {answers[media_path]}:/media
