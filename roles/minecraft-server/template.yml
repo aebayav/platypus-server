@@ -1,0 +1,63 @@
+# Minecraft Java Edition server role template
+#
+# shutdown.strategy: rcon
+#   → rcon-cli save-all  (world flush)
+#   → rcon-cli stop      (clean server exit)
+#   → poll until container exits naturally
+#   → fallback: docker stop (SIGTERM)
+#
+# docker compose down is intentionally NOT used — it can corrupt
+# world data if the Minecraft process hasn't flushed to disk.
+
+role: minecraft-server
+version: "1.0"
+description: "Minecraft Java Edition sunucusu (itzg/minecraft-server)"
+
+shutdown:
+  strategy: rcon
+  container: platypus-minecraft   # Must match container_name in compose_template
+  save_commands:
+    - "save-all"                  # Flush all chunks to disk
+  stop_commands:
+    - "stop"                      # Graceful server shutdown
+  timeout: 60                     # Seconds to wait for natural exit
+
+hooks:
+  pre_remove: []
+  post_remove: []
+  pre_apply: []
+  post_apply:
+    - "echo 'Minecraft server running on port {answers[port]}'"
+
+# -------------------------------------------------------------------
+# docker-compose.yml template
+# Placeholders: {answers[<question_id>]}
+# ./data is a bind mount — never touched by Docker commands.
+# -------------------------------------------------------------------
+compose_template: |
+  services:
+    minecraft:
+      image: itzg/minecraft-server
+      container_name: platypus-minecraft
+      restart: unless-stopped
+      stdin_open: true
+      tty: true
+      ports:
+        - "{answers[port]}:25565"
+      environment:
+        EULA: "TRUE"
+        TYPE: "{answers[server_type]}"
+        MEMORY: "{answers[memory]}"
+        MAX_PLAYERS: "{answers[max_players]}"
+        DIFFICULTY: "{answers[difficulty]}"
+        ENABLE_RCON: "true"
+        RCON_PASSWORD: "platypus"
+        RCON_PORT: "25575"
+      volumes:
+        - ./data:/data
+      healthcheck:
+        test: ["CMD", "mc-health"]
+        interval: 30s
+        timeout: 10s
+        retries: 3
+        start_period: 60s

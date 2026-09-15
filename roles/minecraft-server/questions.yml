@@ -1,0 +1,42 @@
+# TUI questions for the minecraft-server role.
+# The answer values are used as template variables in template.yml.
+
+role: minecraft-server
+title: "Minecraft Server"
+description: "Minecraft Java Edition sunucusu — itzg/minecraft-server imajı"
+
+questions:
+  - id: port
+    label: "Sunucu portu"
+    type: integer
+    default: 25565
+    validate: "1024-65535"
+
+  - id: server_type
+    label: "Sunucu tipi"
+    type: select
+    choices: [VANILLA, PAPER, SPIGOT, FABRIC, FORGE]
+    default: PAPER
+
+  - id: memory
+    label: "Bellek limiti (JVM heap)"
+    type: select
+    choices: ["1G", "2G", "4G", "8G", "16G"]
+    default: "2G"
+
+  - id: max_players
+    label: "Maksimum oyuncu sayısı"
+    type: integer
+    default: 20
+
+  - id: difficulty
+    label: "Zorluk seviyesi"
+    type: select
+    choices: [peaceful, easy, normal, hard]
+    default: normal
+
+  - id: eula_accepted
+    label: "Minecraft EULA'yı kabul ediyorum (https://aka.ms/MinecraftEULA)"
+    type: confirm
+    default: false
+    required: true

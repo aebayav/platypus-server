@@ -15,6 +15,7 @@ dependencies = [
 [project.scripts]
 platypus-tui = "tui.app:main"
 platypus-dashboard = "dashboard.app:main"
+platypus-server = "recipe.cli:main"
 zero-to-server = "zero2server.cli:main"
 
 [project.optional-dependencies]
@@ -30,7 +31,7 @@ zero2server = [
 ]
 
 [tool.setuptools]
-packages = ["tui", "tui.tasks", "dashboard", "zero2server"]
+packages = ["tui", "tui.tasks", "dashboard", "zero2server", "recipe"]
 
 [tool.setuptools.package-data]
 dashboard = ["static/*"]
