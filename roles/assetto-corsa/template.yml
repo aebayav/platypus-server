@@ -1,0 +1,51 @@
+# Assetto Corsa — dedicated racing server (Kunos Simulazioni)
+#
+# The container downloads the Assetto Corsa Dedicated Server (Steam app 302550)
+# via SteamCMD on first start. A Steam account WITHOUT Steam Guard is required
+# (create a throwaway account — the app is free for any logged-in user).
+#
+# Game ports: 9600 TCP + 9600 UDP (racing data)
+# HTTP port : 8081 (live results / JSON API)
+# stracker  : 50041 (lap-time stats UI), 50042 (ptracker)
+# Data      : ./data mounted at /steamapps (server install + config)
+
+role: assetto-corsa
+version: "1.0"
+description: "Assetto Corsa — yarış simülasyonu adanmış sunucusu"
+
+hooks:
+  pre_remove: []
+  post_remove: []
+  pre_apply: []
+  post_apply:
+    - "echo 'Assetto Corsa sunucusu başlatıldı — ilk indirme birkaç dakika sürebilir.'"
+
+# No Caddy HTTP route — the game uses raw TCP/UDP; the HTTP port only serves
+# live results / the JSON API, not a user-facing web UI.
+caddy:
+  enabled: false
+
+compose_template: |
+  services:
+    assetto-corsa:
+      image: germanrcuriel/assetto-corsa-server:latest
+      container_name: platypus-assetto-corsa
+      restart: unless-stopped
+      ports:
+        - "{answers[tcp_port]}:9600"
+        - "{answers[udp_port]}:9600/udp"
+        - "{answers[http_port]}:8081"
+        - "50041:50041"
+        - "50042:50042"
+      environment:
+        STEAM_USER: "{answers[steam_user]}"
+        STEAM_PASSWORD: "{answers[steam_password]}"
+        AC_SERVER_NAME: "{answers[server_name]}"
+        AC_PASSWORD: "{answers[server_password]}"
+        AC_ADMIN_PASSWORD: "{answers[admin_password]}"
+        AC_TCP_PORT: "9600"
+        AC_UDP_PORT: "9600"
+        AC_HTTP_PORT: "8081"
+        TZ: "{answers[timezone]}"
+      volumes:
+        - ./data:/steamapps

@@ -1,0 +1,58 @@
+# TUI questions for the assetto-corsa role.
+# The answer values are used as template variables in template.yml.
+#
+# Steam hesabı: Steam Guard KAPALI, tek kullanımlık bir hesap oluşturun
+# (Assetto Corsa Dedicated Server ücretsiz indirilebilir — Steam app 302550).
+
+role: assetto-corsa
+title: "Assetto Corsa Server"
+description: "Yarış simülasyonu adanmış sunucusu — germanrcuriel/assetto-corsa-server imajı"
+
+questions:
+  - id: server_name
+    label: "Sunucu adı (lobi listesinde görünür)"
+    type: text
+    default: Platypus AC Server
+
+  - id: server_password
+    label: "Sunucu katılım şifresi (boş = şifresiz)"
+    type: text
+    default: ""
+
+  - id: admin_password
+    label: "Sunucu yönetici şifresi"
+    type: text
+    default: changeme
+
+  - id: steam_user
+    label: "Steam kullanıcı adı (Steam Guard kapalı olmalı)"
+    type: text
+    required: true
+
+  - id: steam_password
+    label: "Steam şifresi (answers.yml içinde düz metin saklanır)"
+    type: text
+    required: true
+
+  - id: tcp_port
+    label: "Oyun TCP portu"
+    type: integer
+    default: 9600
+    validate: "1024-65535"
+
+  - id: udp_port
+    label: "Oyun UDP portu"
+    type: integer
+    default: 9600
+    validate: "1024-65535"
+
+  - id: http_port
+    label: "HTTP (canlı sonuç/JSON API) portu"
+    type: integer
+    default: 8081
+    validate: "1024-65535"
+
+  - id: timezone
+    label: "Zaman dilimi"
+    type: text
+    default: Europe/Istanbul
