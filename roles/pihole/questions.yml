@@ -1,0 +1,33 @@
+# TUI questions for the pihole role.
+# The answer values are used as template variables in template.yml.
+
+role: pihole
+title: "Pi-hole"
+description: "Ağ genelinde reklam ve izleyici engelleme — pihole/pihole imajı"
+
+questions:
+  - id: domain
+    label: "Yönetici paneli alan adı (örn: pi.example.com)"
+    type: text
+    default: pi.example.com
+
+  - id: web_port
+    label: "Yönetici paneli HTTP portu"
+    type: integer
+    default: 8081
+    validate: "1024-65535"
+
+  - id: local_ip
+    label: "Sunucunun yerel IP adresi (LAN)"
+    type: text
+    default: 192.168.1.10
+
+  - id: admin_password
+    label: "Pi-hole yönetici şifresi"
+    type: text
+    default: changeme
+
+  - id: timezone
+    label: "Zaman dilimi"
+    type: text
+    default: Europe/Istanbul

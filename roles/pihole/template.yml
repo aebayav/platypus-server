@@ -1,0 +1,45 @@
+# Pi-hole — network-wide ad blocking (DNS sinkhole)
+#
+# DNS: port 53 (TCP + UDP) is published on the host so other devices on
+# the LAN can point their DNS server at this machine.
+# Web admin: published on {answers[web_port]} (host), served behind Caddy
+# when a domain is configured.
+# Data: ./etc-pihole (Pi-hole config) and ./etc-dnsmasq.d (dnsmasq config).
+
+role: pihole
+version: "1.0"
+description: "Pi-hole — ağ genelinde reklam ve izleyici engelleme (DNS sinkhole)"
+
+hooks:
+  pre_remove: []
+  post_remove: []
+  pre_apply: []
+  post_apply:
+    - "echo 'Pi-hole hazır — ağdaki cihazların DNS adresini bu sunucuya yönlendirin.'"
+
+caddy:
+  enabled: true
+  route: |
+    {answers[domain]} {{
+        reverse_proxy platypus-pihole:80
+    }}
+
+compose_template: |
+  services:
+    pihole:
+      image: pihole/pihole:latest
+      container_name: platypus-pihole
+      restart: unless-stopped
+      ports:
+        - "53:53/tcp"
+        - "53:53/udp"
+        - "{answers[web_port]}:80"
+      environment:
+        TZ: "{answers[timezone]}"
+        WEBPASSWORD: "{answers[admin_password]}"
+        FTLCONF_LOCAL_IPV4: "{answers[local_ip]}"
+      volumes:
+        - ./etc-pihole:/etc/pihole
+        - ./etc-dnsmasq.d:/etc/dnsmasq.d
+      cap_add:
+        - NET_ADMIN
