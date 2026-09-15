@@ -168,3 +168,4 @@ def _signal_shutdown(config: ShutdownConfig, log: Log) -> None:
     container = config.container
     log(f"[SIGTERM shutdown] container: {container!r} (grace: {config.timeout}s)")
     _docker_stop(container, grace=config.timeout, log=log)
+

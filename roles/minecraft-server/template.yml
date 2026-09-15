@@ -1,38 +1,37 @@
-# Minecraft Java Edition server role template
+# Minecraft Java Edition role template
 #
-# shutdown.strategy: rcon
-#   → rcon-cli save-all  (world flush)
-#   → rcon-cli stop      (clean server exit)
-#   → poll until container exits naturally
-#   → fallback: docker stop (SIGTERM)
+# Stop sequence (pre_remove hooks):
+#   1. rcon-cli save-all  — flush world data to disk
+#   2. rcon-cli stop      — graceful server exit (container stops itself)
+#   3. sleep 3            — brief pause for I/O to complete
+#   Then: docker compose down  (container already exited, just cleaned up)
 #
-# docker compose down is intentionally NOT used — it can corrupt
-# world data if the Minecraft process hasn't flushed to disk.
+# ./data is a bind mount. docker compose down never touches it.
 
 role: minecraft-server
 version: "1.0"
 description: "Minecraft Java Edition sunucusu (itzg/minecraft-server)"
 
-shutdown:
-  strategy: rcon
-  container: platypus-minecraft   # Must match container_name in compose_template
-  save_commands:
-    - "save-all"                  # Flush all chunks to disk
-  stop_commands:
-    - "stop"                      # Graceful server shutdown
-  timeout: 60                     # Seconds to wait for natural exit
+# No standalone shutdown section — RCON is handled via pre_remove hooks below.
 
 hooks:
-  pre_remove: []
+  pre_remove:
+    - "docker exec platypus-minecraft rcon-cli save-all || true"
+    - "docker exec platypus-minecraft rcon-cli stop || true"
+    - "sleep 3"
   post_remove: []
   pre_apply: []
   post_apply:
     - "echo 'Minecraft server running on port {answers[port]}'"
 
+# No Caddy HTTP route — Minecraft uses raw TCP (port 25565), not HTTP.
+caddy:
+  enabled: false
+
 # -------------------------------------------------------------------
 # docker-compose.yml template
-# Placeholders: {answers[<question_id>]}
-# ./data is a bind mount — never touched by Docker commands.
+# Placeholders resolved via {answers[<question_id>]}.
+# RCON is enabled so pre_remove hooks can reach the server.
 # -------------------------------------------------------------------
 compose_template: |
   services:

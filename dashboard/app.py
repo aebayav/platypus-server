@@ -386,6 +386,86 @@ def api_systemd_action(unit: str, action: str):
         return jsonify({"error": str(exc)}), 500
 
 # ---------------------------------------------------------------------------
+# Recipe / role status
+# ---------------------------------------------------------------------------
+
+@app.get("/api/recipe")
+@login_required
+def api_recipe():
+    """Return active role and dormant roles read from /opt/platypus/state.yml."""
+    import os
+    from pathlib import Path
+
+    state_file = Path("/opt/platypus/state.yml")
+    roles_dir  = Path("/opt/platypus/roles")
+
+    # Parse state.yml (gracefully handle missing file)
+    active_name: str | None = None
+    activated_at: str | None = None
+    history: list[dict] = []
+
+    if state_file.exists():
+        try:
+            import yaml as _yaml
+            with state_file.open(encoding="utf-8") as fh:
+                raw = _yaml.safe_load(fh) or {}
+            active_name  = raw.get("active")
+            activated_at = str(raw.get("activated_at") or "")
+            history      = raw.get("history") or []
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _dir_size_mb(path: Path) -> float:
+        total = sum(
+            f.stat().st_size
+            for f in path.rglob("*")
+            if f.is_file()
+        )
+        return round(total / (1024 * 1024), 1)
+
+    # Build active entry
+    active: dict | None = None
+    if active_name:
+        data_dir = roles_dir / active_name / "data"
+        active = {
+            "name": active_name,
+            "status": "active",
+            "activated_at": activated_at,
+            "data_size_mb": _dir_size_mb(data_dir) if data_dir.exists() else 0.0,
+        }
+
+    # Build dormant list
+    dormant: list[dict] = []
+    if roles_dir.exists():
+        for role_dir in sorted(roles_dir.iterdir()):
+            if not role_dir.is_dir() or role_dir.name == active_name:
+                continue
+            data_dir     = role_dir / "data"
+            answers_file = role_dir / "answers.yml"
+            last_active  = next(
+                (
+                    h.get("deactivated_at")
+                    for h in reversed(history)
+                    if h.get("role") == role_dir.name
+                ),
+                None,
+            )
+            dormant.append({
+                "name": role_dir.name,
+                "status": "dormant",
+                "configured": answers_file.exists(),
+                "last_active": str(last_active) if last_active else None,
+                "data_size_mb": _dir_size_mb(data_dir) if data_dir.exists() else 0.0,
+            })
+
+    return jsonify({
+        "active": active,
+        "dormant": dormant,
+        "history": history[-10:],   # last 10 transitions
+    })
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 

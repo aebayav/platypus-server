@@ -112,3 +112,4 @@ STATE_FILE:         Path = PLATYPUS_DIR / "state.yml"
 
 # Built-in role templates (shipped with the repo)
 ROLES_SOURCE_DIR: Path = Path(__file__).parent.parent / "roles"
+

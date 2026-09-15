@@ -116,3 +116,4 @@ def is_lock_stale(lock: dict) -> bool:
         return True        # Process is gone
     except PermissionError:
         return False       # Process exists, we just can't signal it
+
