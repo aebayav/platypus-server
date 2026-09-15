@@ -1,13 +1,23 @@
-# platypus-server — Ansible Development Environment
+# platypus-server
 
-This repository contains a ready-to-use Ansible development environment for the
-`platypus-server` project. Everything needed for configuration management, role
-development, and testing is in place.
+Tools for setting up and operating a Linux home server: an interactive TUI,
+a web dashboard, a swappable server-role system, a docker-compose generator,
+and an Ansible configuration layer.
+
+## Components
+
+| Component | Command | Purpose |
+|---|---|---|
+| TUI | `platypus-tui` | Interactive Linux server setup (Textual) |
+| Web dashboard | `platypus-dashboard` | Services, metrics and container management (Flask) |
+| Server roles | `platypus-server` | Switch the server between pre-built roles |
+| Compose generator | `zero-to-server` | Generate docker-compose.yml and Caddyfile |
+| Ansible layer | playbooks, inventory | Configuration management for dev/prod |
 
 ## Requirements
 
 - Python 3.10+
-- Docker (optional, for role testing with Molecule)
+- Docker (optional: dashboard container controls, Molecule role tests)
 
 ## Installation
 
@@ -30,15 +40,36 @@ make setup
 source .venv/bin/activate
 ```
 
+### Install the package
+
+```bash
+pip install -e .
+```
+
+Optional extras: `.[dashboard]` (Flask, psutil) and `.[zero2server]` (PyYAML).
+Textual, the TUI dependency, is installed by default.
+
 ## Directory Structure
 
 ```
 platypus-server/
-├── ansible.cfg              # Ansible configuration
-├── requirements.txt         # Python dependencies
-├── requirements.yml         # Collections and roles
-├── Makefile                 # Helper commands
-├── setup.ps1                # Windows setup script
+├── tui/                     # Textual TUI (server setup)
+├── dashboard/               # Flask web dashboard
+├── recipe/                  # Server-role switch system
+├── zero2server/             # docker-compose + Caddyfile generator
+├── roles/
+│   ├── common/              # Ansible role: base server configuration
+│   │   └── molecule/        # Ansible role tests
+│   ├── platypus/            # Ansible role: application deployment
+│   ├── minecraft-server/    # Recipe role: template.yml + questions.yml
+│   ├── storage-nextcloud/   # Recipe role
+│   ├── storage-samba/       # Recipe role
+│   ├── pihole/              # Recipe role
+│   ├── syncthing/           # Recipe role
+│   ├── jellyfin/            # Recipe role
+│   └── assetto-corsa/       # Recipe role
+├── playbooks/
+│   └── site.yml             # Main playbook
 ├── inventory/
 │   ├── dev/                 # Development environment
 │   │   ├── hosts.yml
@@ -48,17 +79,21 @@ platypus-server/
 │       └── group_vars/
 ├── group_vars/
 │   └── all/                 # Environment-agnostic variables
-├── playbooks/
-│   └── site.yml             # Main playbook
-├── roles/
-│   ├── common/              # Base server configuration
-│   │   └── molecule/        # Role tests
-│   └── platypus/            # Application deployment (scaffold)
+├── scripts/                 # Backup and service install scripts
+├── tests/                   # pytest suite
+├── ansible.cfg              # Ansible configuration
+├── requirements.txt         # Ansible/testing Python dependencies
+├── requirements.yml         # Ansible collections
+├── Makefile                 # Helper commands
+├── setup.ps1                # Windows setup script
 ├── .ansible-lint.yml
 └── .yamllint.yml
 ```
 
-## Usage
+## Ansible
+
+The `ansible.cfg`, `playbooks/`, `inventory/` and Ansible role directories
+provide a ready-to-use configuration management environment for dev and prod.
 
 ### Check the environment
 
@@ -98,7 +133,7 @@ cd roles/common
 molecule test
 ```
 
-## Creating a New Role
+## Creating a New Ansible Role
 
 ```bash
 ansible-galaxy role init roles/new-role
@@ -160,11 +195,19 @@ sudo -E .venv/bin/platypus-tui
 
 ## Web Dashboard
 
-A small web dashboard (Flask + psutil) shows local services and system metrics
-on a single page:
+A web dashboard (Flask + psutil) for the local server, behind a simple login
+(default `admin` / `platypus`; override with the `DASHBOARD_USER` and
+`DASHBOARD_PASSWORD` environment variables):
 
 - **Services** — Portainer, Uptime Kuma, and your own projects (up/down status)
-- **System** — CPU, memory, disk usage and temperatures
+- **System** — CPU, memory, disk usage, temperatures and metric history
+- **Containers** — list, run, start/stop/restart, remove, logs, stats, images
+- **Compose** — manage docker compose stacks
+- **Systemd** — service status and control
+- **Firewall** — UFW rule overview
+- **Roles** — active and dormant server roles
+
+A public `/health` endpoint reports `ok` / `degraded` for monitoring tools.
 
 ### Configure services
 
@@ -203,11 +246,53 @@ automatically on boot and restarts it if it crashes:
 systemctl status platypus-dashboard
 ```
 
+## Server Roles (recipe system)
+
+`platypus-server` switches the whole server between pre-built roles. Each role
+is defined by two files under `roles/<name>/`:
+
+- `template.yml` — docker-compose template, hooks and an optional Caddy route
+- `questions.yml` — questions asked during first-time setup
+
+### Built-in roles
+
+| Role | Image | Description |
+|---|---|---|
+| `minecraft-server` | itzg/minecraft-server | Minecraft Java Edition with RCON-safe shutdown |
+| `storage-nextcloud` | nextcloud:28-apache + mariadb:10.11 | Personal cloud storage |
+| `storage-samba` | dperson/samba | SMB/CIFS file sharing |
+| `pihole` | pihole/pihole | Network-wide ad blocking (DNS sinkhole) |
+| `syncthing` | syncthing/syncthing | File synchronization between devices |
+| `jellyfin` | jellyfin/jellyfin | Media server (movies, TV, music) |
+| `assetto-corsa` | germanrcuriel/assetto-corsa-server | Assetto Corsa dedicated racing server |
+
+### Usage
+
+```bash
+# Switch to a role (prompts for answers on first run)
+platypus-server switch minecraft-server
+
+# Show active role, dormant roles and transition history
+platypus-server status
+```
+
+During a switch, the current role is stopped (including its `pre_remove`
+hooks, e.g. RCON save for Minecraft), the new role's `docker-compose.yml` is
+rendered from the template and answers, the stack is started, the Caddy route
+is updated, and the state is recorded in `/opt/platypus/state.yml`. Existing
+answers are reused on later switches, and a transition lock with rollback
+protects against interrupted switches.
+
+Runtime data lives under `/opt/platypus/roles/<role>/` (`answers.yml`,
+`docker-compose.yml`, bind-mounted `./data`). The role system targets Linux
+hosts.
+
 ## zero-to-server CLI
 
-An interactive CLI that generates a personalized
-`docker-compose.yml` plus a `Caddyfile` by asking which services you want,
-your domain, and whether to enable HTTPS.
+An interactive CLI that generates a personalized `docker-compose.yml` plus a
+`Caddyfile` by asking which services you want, your domain, and whether to
+enable HTTPS. Available services in the catalog: Portainer, Uptime Kuma,
+Caddy, Watchtower, PostgreSQL and Redis.
 
 ### Run
 
@@ -221,6 +306,24 @@ python -m zero2server
 Answer the prompts — it writes `docker-compose.yml` and, when Caddy is
 selected, a `Caddyfile` with subdomain routes (e.g. `portainer.example.com`)
 and automatic Let's Encrypt HTTPS.
+
+Useful flags: `--run` starts the stack right away with `docker compose up -d`,
+`--install-cron` installs a daily cron job that restarts Watchtower, and
+`--out-dir DIR` sets the output directory.
+
+## Scripts
+
+| Script | Purpose |
+|---|---|
+| `scripts/backup.sh` | Archives `BACKUP_DIRS` to `BACKUP_DEST`, keeps `BACKUP_RETENTION` days of backups, optional S3 upload (`S3_BUCKET`) |
+| `scripts/install-backup-cron.sh` | Installs the `/etc/cron.d/platypus-backup` cron job |
+| `scripts/install-dashboard-service.sh` | Registers `platypus-dashboard.service` (starts on boot) |
+
+Run a backup directly:
+
+```bash
+sudo ./scripts/backup.sh
+```
 
 ## Testing & CI
 
@@ -255,3 +358,4 @@ molecule test
 - Update the SSH details in `inventory/dev/hosts.yml` to match your development environment.
 - For production, fill `inventory/prod/hosts.yml` with real servers.
 - Collections are installed into `./collections` and are not committed to git (see `.gitignore`).
+- The `roles/` directory holds both Ansible roles (`common`, `platypus`) and recipe role templates (the ones with `template.yml` and `questions.yml`).
