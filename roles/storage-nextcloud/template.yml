@@ -1,0 +1,74 @@
+# Storage Server — Nextcloud
+# Tam özellikli kişisel bulut depolama.
+# İmaj: nextcloud:28-apache + mariadb:10.11
+# Veri: ./data/nextcloud → Nextcloud dosyaları
+#        ./data/db       → MariaDB veritabanı
+# Caddy: HTTPS desteği için etkinleştir.
+
+role: storage-nextcloud
+version: "1.0"
+description: "Nextcloud — kişisel bulut depolama ve ofis paketi"
+
+hooks:
+  pre_remove:
+    - "docker exec platypus-nextcloud php occ maintenance:mode --on || true"
+  post_remove: []
+  pre_apply: []
+  post_apply:
+    - "echo 'Nextcloud başlatılıyor — ilk kurulum ~60 saniye sürebilir.'"
+    - "echo 'Adres: https://{answers[domain]}'"
+
+caddy:
+  enabled: true
+  route: |
+    {answers[domain]} {{
+        reverse_proxy platypus-nextcloud:80 {{
+            header_up Host {{host}}
+            header_up X-Real-IP {{remote_host}}
+            header_up X-Forwarded-For {{remote_host}}
+            header_up X-Forwarded-Proto {{scheme}}
+        }}
+    }}
+
+compose_template: |
+  services:
+    nextcloud:
+      image: nextcloud:28-apache
+      container_name: platypus-nextcloud
+      restart: unless-stopped
+      ports:
+        - "{answers[http_port]}:80"
+      environment:
+        NEXTCLOUD_ADMIN_USER: "{answers[admin_user]}"
+        NEXTCLOUD_ADMIN_PASSWORD: "{answers[admin_password]}"
+        NEXTCLOUD_TRUSTED_DOMAINS: "{answers[domain]} localhost"
+        MYSQL_HOST: mariadb
+        MYSQL_DATABASE: nextcloud
+        MYSQL_USER: nextcloud
+        MYSQL_PASSWORD: "{answers[db_password]}"
+        OVERWRITEPROTOCOL: https
+        OVERWRITECLIURL: "https://{answers[domain]}"
+      volumes:
+        - ./data/nextcloud:/var/www/html
+      depends_on:
+        mariadb:
+          condition: service_healthy
+
+    mariadb:
+      image: mariadb:10.11
+      container_name: platypus-nextcloud-db
+      restart: unless-stopped
+      environment:
+        MARIADB_ROOT_PASSWORD: "{answers[db_root_password]}"
+        MARIADB_DATABASE: nextcloud
+        MARIADB_USER: nextcloud
+        MARIADB_PASSWORD: "{answers[db_password]}"
+      volumes:
+        - ./data/db:/var/lib/mysql
+      healthcheck:
+        test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+        interval: 10s
+        timeout: 5s
+        retries: 5
+        start_period: 30s
+

@@ -1,0 +1,35 @@
+role: storage-nextcloud
+title: "Storage Server — Nextcloud"
+description: "Kişisel bulut depolama — Nextcloud 28 + MariaDB"
+
+questions:
+  - id: domain
+    label: "Alan adı (örn: cloud.example.com)"
+    type: text
+    default: cloud.example.com
+
+  - id: admin_user
+    label: "Nextcloud yönetici kullanıcı adı"
+    type: text
+    default: admin
+
+  - id: admin_password
+    label: "Nextcloud yönetici şifresi"
+    type: text
+    default: changeme
+
+  - id: db_password
+    label: "Veritabanı şifresi (Nextcloud kullanıcısı)"
+    type: text
+    default: nextcloud_pass
+
+  - id: db_root_password
+    label: "MariaDB root şifresi"
+    type: text
+    default: root_pass
+
+  - id: http_port
+    label: "Yerel HTTP portu (Caddy arkasında genellikle 8080)"
+    type: integer
+    default: 8080
+
