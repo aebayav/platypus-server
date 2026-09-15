@@ -71,8 +71,18 @@ def _load_template(role_name: str) -> dict:
         return yaml.safe_load(fh) or {}
 
 
-def _run_hooks(commands: list[str], log: Log) -> None:
+def _run_hooks(
+    commands: list[str],
+    log: Log,
+    answers: dict[str, Any] | None = None,
+) -> None:
+    """Run each hook command, optionally substituting {answers[key]} placeholders."""
     for cmd in commands:
+        if answers:
+            try:
+                cmd = cmd.format_map({"answers": answers})
+            except (KeyError, ValueError):
+                pass  # Leave command as-is if substitution fails
         log(f"  $ {cmd}")
         result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
         for line in result.stdout.strip().splitlines():
@@ -227,17 +237,20 @@ def _execute(
 
         cur_template = _load_template(cur)
 
+        # Load current role's answers for pre_remove hook interpolation
+        cur_answers = load_answers(cur)
+
         pre_remove = cur_template.get("hooks", {}).get("pre_remove", [])
         if pre_remove:
             log("  pre_remove hooks:")
-            _run_hooks(pre_remove, log)
+            _run_hooks(pre_remove, log, answers=cur_answers)
 
         _compose_down(cur, log)
 
         post_remove = cur_template.get("hooks", {}).get("post_remove", [])
         if post_remove:
             log("  post_remove hooks:")
-            _run_hooks(post_remove, log)
+            _run_hooks(post_remove, log, answers=cur_answers)
 
         # Record deactivation in history
         for entry in state.history:
@@ -272,7 +285,7 @@ def _execute(
     pre_apply = new_template.get("hooks", {}).get("pre_apply", [])
     if pre_apply:
         log("  pre_apply hooks:")
-        _run_hooks(pre_apply, log)
+        _run_hooks(pre_apply, log, answers=answers)
 
     _compose_up(new_role, log)
 
@@ -283,7 +296,7 @@ def _execute(
     post_apply = new_template.get("hooks", {}).get("post_apply", [])
     if post_apply:
         log("  post_apply hooks:")
-        _run_hooks(post_apply, log)
+        _run_hooks(post_apply, log, answers=answers)
 
     # ==================================================================
     # PHASE 4 — Persist state

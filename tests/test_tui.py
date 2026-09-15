@@ -20,7 +20,9 @@ def test_main_menu_has_all_entries() -> None:
             items = list(app.screen.query_one("#task-list", ListView).children)
             return len(items)
 
-    assert asyncio.run(run()) == 7
+    from tui.tasks import TASKS
+    # +1 for the "Sequential Setup" item always at the top of the list
+    assert asyncio.run(run()) == len(TASKS) + 1
 
 
 def test_sequential_screen_composes() -> None:

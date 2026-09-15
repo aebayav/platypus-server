@@ -1,16 +1,13 @@
 """Graceful shutdown strategies for role containers.
 
-Strategy: RCON (game servers)
-  1. docker exec <container> rcon-cli save-all   ← flush world data
-  2. docker exec <container> rcon-cli stop       ← clean server exit
-  3. Poll until container exits naturally
-  4. Fallback: docker stop (SIGTERM + 30 s SIGKILL grace)
+.. deprecated::
+    This module is no longer used.  The switch flow now relies on
+    ``pre_remove`` hooks in each role's ``template.yml`` to flush state
+    (e.g. ``rcon-cli save-all``), followed by ``docker compose down``
+    which sends SIGTERM and waits for the container to exit.
+    See ``recipe/transition.py`` → ``_compose_down()``.
 
-Strategy: SIGNAL (regular services)
-  docker stop -t <timeout>   ← SIGTERM → SIGKILL
-
-IMPORTANT: docker compose down is intentionally NOT used here — it can
-corrupt game server data if the server process hasn't flushed to disk.
+    This file is kept for historical reference only.
 """
 
 from __future__ import annotations

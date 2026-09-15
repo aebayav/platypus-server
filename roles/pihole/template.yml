@@ -39,7 +39,7 @@ compose_template: |
         WEBPASSWORD: "{answers[admin_password]}"
         FTLCONF_LOCAL_IPV4: "{answers[local_ip]}"
       volumes:
-        - ./etc-pihole:/etc/pihole
-        - ./etc-dnsmasq.d:/etc/dnsmasq.d
+        - ./data/etc-pihole:/etc/pihole
+        - ./data/etc-dnsmasq.d:/etc/dnsmasq.d
       cap_add:
         - NET_ADMIN

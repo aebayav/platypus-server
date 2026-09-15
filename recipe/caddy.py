@@ -1,13 +1,22 @@
 """Manage the Caddy reverse-proxy snippet for the active role.
 
-Each role template may declare an optional ``caddy`` block:
+Each role template may declare an optional ``caddy`` block.
+Because the route string is processed by Python's ``str.format_map``,
+Caddy block delimiters ``{`` and ``}`` MUST be doubled (``{{`` / ``}}``)
+so they survive template rendering unchanged:
 
     caddy:
       enabled: true
       route: |
-        {answers[domain]} {
+        {answers[domain]} {{
             reverse_proxy localhost:{answers[port]}
-        }
+        }}
+
+After rendering with ``answers = {"domain": "x.com", "port": 8096}``:
+
+    x.com {
+        reverse_proxy localhost:8096
+    }
 
 When a role becomes active:
   1. Render the route block with user answers.

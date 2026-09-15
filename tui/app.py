@@ -30,13 +30,20 @@ from .tasks.vpn import TAILSCALE_TASK, WIREGUARD_TASK
 
 # Short descriptions shown in the main menu beneath each task title.
 _TASK_HINTS: dict[str, str] = {
-    "docker": "Docker Engine + Compose plugin via get.docker.com",
-    "caddy": "Reverse proxy with automatic HTTPS",
-    "ssh": "Disable root/password login, tighten sshd options",
-    "ufw": "Firewall: allow SSH/HTTP/HTTPS, deny everything else",
-    "tailscale": "Zero-config VPN — authenticate via browser URL",
-    "wireguard": "Self-hosted VPN — manual peer configuration",
+    "docker":     "Docker Engine + Compose plugin via get.docker.com",
+    "caddy":      "Reverse proxy with automatic HTTPS",
+    "ssh":        "Disable root/password login, tighten sshd options",
+    "ufw":        "Firewall: allow SSH/HTTP/HTTPS, deny everything else",
+    "tailscale":  "Zero-config VPN — authenticate via browser URL",
+    "wireguard":  "Self-hosted VPN — manual peer configuration",
+    "postgresql": "Relational database — installs PostgreSQL from distro repo",
+    "redis":      "In-memory store — installs Redis with persistence enabled",
+    "nginx":      "Web server — installs Nginx and verifies configuration",
+    "certbot":    "TLS certificates — Certbot + Nginx plugin for Let's Encrypt",
+    "sysupdate":  "Upgrade all system packages via apt-get",
+    "backup":     "Archive directories to tar.gz, optional S3 upload",
 }
+
 
 
 def is_root() -> bool:

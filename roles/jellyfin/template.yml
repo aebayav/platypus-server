@@ -33,6 +33,6 @@ compose_template: |
       environment:
         TZ: "{answers[timezone]}"
       volumes:
-        - ./config:/config
-        - ./cache:/cache
-        - {answers[media_path]}:/media
+        - ./data/config:/config
+        - ./data/cache:/cache
+        - "{answers[media_path]}:/media"
