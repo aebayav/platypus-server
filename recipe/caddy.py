@@ -130,3 +130,4 @@ def update(role_name: str, answers: dict[str, Any], log: Log) -> None:
         _reload(log)
     except (CaddyError, FileNotFoundError, subprocess.TimeoutExpired) as exc:
         log(f"  ! Caddy reload skipped: {exc}")
+

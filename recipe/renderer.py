@@ -83,3 +83,4 @@ def save_answers(role_name: str, answers: dict[str, Any]) -> Path:
         yaml.safe_dump(data, fh, allow_unicode=True, sort_keys=False)
     tmp.replace(answers_file)
     return answers_file
+
