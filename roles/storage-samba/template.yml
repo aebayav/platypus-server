@@ -1,0 +1,37 @@
+# Storage Server — Samba
+# Ağdaki tüm Windows/macOS/Linux cihazlardan erişilebilir dosya paylaşımı.
+# İmaj: dperson/samba
+# Veri: ./data/ → container içinde /share olarak mount edilir.
+
+role: storage-samba
+version: "1.0"
+description: "Samba dosya sunucusu — ağ genelinde SMB/CIFS paylaşımı"
+
+hooks:
+  pre_remove: []
+  post_remove: []
+  pre_apply: []
+  post_apply:
+    - "echo 'Samba çalışıyor — bağlantı: smb://<sunucu-ip>/{answers[share_name]}'"
+
+caddy:
+  enabled: false   # Samba SMB protokolü kullanır, HTTP değil
+
+compose_template: |
+  services:
+    samba:
+      image: dperson/samba:latest
+      container_name: platypus-samba
+      restart: unless-stopped
+      ports:
+        - "139:139"
+        - "445:445"
+      environment:
+        TZ: "{answers[timezone]}"
+      command: >-
+        -u "{answers[username]};{answers[password]}"
+        -s "{answers[share_name]};/share;yes;no;no;{answers[username]}"
+        -p
+      volumes:
+        - ./data:/share
+

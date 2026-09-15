@@ -1,0 +1,25 @@
+role: storage-samba
+title: "Storage Server — Samba"
+description: "Ağ genelinde SMB/CIFS dosya paylaşımı (Windows, macOS, Linux uyumlu)"
+
+questions:
+  - id: share_name
+    label: "Paylaşım adı (SMB üzerinde görünecek isim)"
+    type: text
+    default: platypus
+
+  - id: username
+    label: "Samba kullanıcı adı"
+    type: text
+    default: platypus
+
+  - id: password
+    label: "Samba şifresi"
+    type: text
+    default: changeme
+
+  - id: timezone
+    label: "Zaman dilimi"
+    type: text
+    default: Europe/Istanbul
+
