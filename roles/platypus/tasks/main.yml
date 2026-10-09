@@ -10,8 +10,12 @@
   become: true
 
 - name: Create the application directory
+  # The app directory lives under /opt/platypus (the runtime root, next to
+  # state.yml and roles/). It must NOT be /opt/{{ app_name }}: that path is
+  # the git checkout, and chowning it to the app user breaks bootstrap's
+  # `git pull` with "dubious ownership".
   ansible.builtin.file:
-    path: "/opt/{{ app_name }}"
+    path: "/opt/platypus/{{ app_name }}"
     state: directory
     owner: "{{ app_user }}"
     group: "{{ app_user }}"
