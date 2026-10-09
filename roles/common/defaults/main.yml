@@ -1,3 +1,10 @@
 ---
-# Common server configuration (base role)
-# Base tasks that run on all servers are collected here.
+# common role: default variables
+# Base packages installed on every target. The list lives here (role
+# default) so it is always defined, no matter how the playbook is invoked.
+common_packages:
+  - git
+  - curl
+  - vim
+  - htop
+  - unzip

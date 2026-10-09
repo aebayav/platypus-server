@@ -169,8 +169,6 @@ platypus-server/
 │   └── prod/                # Production environment
 │       ├── hosts.yml
 │       └── group_vars/
-├── group_vars/
-│   └── all/                 # Environment-agnostic variables
 ├── scripts/                 # Backup and service install scripts
 ├── tests/                   # pytest suite
 ├── doctor.py                # Pre-flight checks (platypus doctor)
