@@ -1,0 +1,4 @@
+---
+# security role: maintainable variables
+# Debian/Ubuntu call the service 'ssh'; RHEL-family uses 'sshd'.
+ssh_service_name: "{{ 'sshd' if ansible_os_family == 'RedHat' else 'ssh' }}"

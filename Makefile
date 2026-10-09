@@ -1,4 +1,4 @@
-# Helper commands for the Ansible dev environment (Linux / macOS / WSL)
+# Helper commands for running Ansible locally on the server (Linux / macOS / WSL)
 SHELL := /bin/bash
 PY := .venv/bin
 ANSIBLE := $(PY)/ansible
@@ -20,10 +20,10 @@ lint: ## Run ansible-lint
 	$(ANSIBLE_LINT)
 
 check: ## Syntax check
-	$(ANSIBLE) playbook --syntax-check playbooks/site.yml
+	$(ANSIBLE) playbook --syntax-check playbooks/site.yml -i inventory/dev
 
-ping: ## Ping dev hosts
-	$(ANSIBLE) platypus -i inventory/dev -m ping
+ping: ## Ping the local dev host
+	$(ANSIBLE) localhost -i inventory/dev -m ping
 
 run: ## Run site.yml against the dev environment
 	$(ANSIBLE) playbook playbooks/site.yml -i inventory/dev

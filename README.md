@@ -19,6 +19,66 @@ and an Ansible configuration layer.
 - Python 3.10+
 - Docker (optional: dashboard container controls, Molecule role tests)
 
+## One-line server bootstrap
+
+On the server itself, run a single command — it installs the system packages,
+clones the repository to `/opt/platypus-server`, creates a virtual environment,
+installs Ansible and the required collections, and runs the playbook locally
+(`ansible_connection: local`):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/aebayav/platypus-server/main/bootstrap.sh | sudo bash
+```
+
+Supported distros: Debian/Ubuntu, Fedora/RHEL, Alpine, Arch and openSUSE.
+
+The installation steps adapt to the kind of server with `PLATYPUS_TARGET`:
+
+```bash
+# Home server behind NAT (default): Tailscale firewall rule, no fail2ban
+curl -fsSL https://raw.githubusercontent.com/aebayav/platypus-server/main/bootstrap.sh | sudo bash
+
+# Public VPS: fail2ban for SSH, HTTP/HTTPS opened for the reverse proxy
+curl -fsSL https://raw.githubusercontent.com/aebayav/platypus-server/main/bootstrap.sh | sudo env PLATYPUS_TARGET=vps bash
+```
+
+Options:
+
+```bash
+# Development environment instead of production
+curl -fsSL https://raw.githubusercontent.com/aebayav/platypus-server/main/bootstrap.sh | sudo env PLATYPUS_ENV=dev bash
+
+# Dry run (extra arguments after `--` go to ansible-playbook)
+curl -fsSL https://raw.githubusercontent.com/aebayav/platypus-server/main/bootstrap.sh | sudo bash -s -- --check
+```
+
+Re-running is safe: the script updates the existing checkout, reuses the
+virtual environment and re-applies the idempotent playbook.
+
+### Pre-flight checks (`platypus doctor`)
+
+Before touching anything, run the pre-flight checks — they verify the OS,
+sudo rights, Python version, free disk and RAM, internet access, and that
+the ports the stack needs (80, 443, 5050, 8080) are free:
+
+```bash
+# standalone — no installation needed
+curl -fsSL https://raw.githubusercontent.com/aebayav/platypus-server/main/doctor.py | python3 -
+
+# or, once the repository is installed
+platypus doctor
+```
+
+The bootstrap above runs the same checks automatically, so a missing sudo
+right or a blocked port fails **before** the installation starts instead of
+halfway through. The default port list depends on the target — a VPS checks
+`80,443,5050,8080`, a home server `5050,8080` (`--target` or the
+`PLATYPUS_TARGET` environment variable selects it). Custom port list:
+
+```bash
+platypus doctor --ports 80,443,5050,8080,25565
+```
+
 ## Installation
 
 ### Windows (PowerShell)
@@ -49,11 +109,42 @@ pip install -e .
 Optional extras: `.[dashboard]` (Flask, psutil) and `.[zero2server]` (PyYAML).
 Textual, the TUI dependency, is installed by default.
 
+## Profiles and settings
+
+Two settings keep the interfaces from getting overwhelming. Both are
+changeable in the TUI itself (**Settings**, the last entry of the main menu)
+and persist in `~/.config/platypus/config.yml` (relocatable with
+`PLATYPUS_CONFIG`):
+
+| Setting | Values | Effect |
+|---|---|---|
+| `mode` | `simple`, `full` | `simple` shows the essentials only and hides advanced tasks (WireGuard, PostgreSQL, Redis, Nginx, Certbot, Backup) |
+| `target` | `home`, `vps` | picks the relevant tasks and installation steps for a home server behind NAT or a public VPS |
+
+Target differences at a glance:
+
+- **home** — VPN stage (Tailscale/WireGuard) in Sequential Setup, Tailscale
+  firewall rule, ports `5050,8080` checked by the doctor
+- **vps** — no VPN stage (public IP already), Nginx/Certbot tasks instead of
+  Tailscale, fail2ban + open HTTP/HTTPS in the Ansible run, ports
+  `80,443,5050,8080` checked by the doctor
+
+Values resolve with this precedence: **command-line flags > environment
+variables (`PLATYPUS_MODE`, `PLATYPUS_TARGET`) > config file > defaults
+(`full`, `home`)**. Examples:
+
+```bash
+platypus-tui --mode simple --target vps
+PLATYPUS_TARGET=vps platypus doctor
+sudo env PLATYPUS_TARGET=vps bash bootstrap.sh
+```
+
 ## Directory Structure
 
 ```
 platypus-server/
 ├── tui/                     # Textual TUI (server setup)
+│   └── settings.py          # mode (simple/full) + target (home/vps) settings
 ├── dashboard/               # Flask web dashboard
 ├── recipe/                  # Server-role switch system
 ├── zero2server/             # docker-compose + Caddyfile generator
@@ -61,6 +152,7 @@ platypus-server/
 │   ├── common/              # Ansible role: base server configuration
 │   │   └── molecule/        # Ansible role tests
 │   ├── platypus/            # Ansible role: application deployment
+│   ├── security/            # Ansible role: SSH hardening, UFW, target steps
 │   ├── minecraft-server/    # Recipe role: template.yml + questions.yml
 │   ├── storage-nextcloud/   # Recipe role
 │   ├── storage-samba/       # Recipe role
@@ -81,6 +173,8 @@ platypus-server/
 │   └── all/                 # Environment-agnostic variables
 ├── scripts/                 # Backup and service install scripts
 ├── tests/                   # pytest suite
+├── doctor.py                # Pre-flight checks (platypus doctor)
+├── bootstrap.sh             # One-line server installer
 ├── ansible.cfg              # Ansible configuration
 ├── requirements.txt         # Ansible/testing Python dependencies
 ├── requirements.yml         # Ansible collections
@@ -93,7 +187,15 @@ platypus-server/
 ## Ansible
 
 The `ansible.cfg`, `playbooks/`, `inventory/` and Ansible role directories
-provide a ready-to-use configuration management environment for dev and prod.
+provide a ready-to-use configuration management environment. Ansible runs
+directly on the server itself with `ansible_connection: local` — no SSH
+needed. The one-line bootstrap above is the quickest way to set a server up;
+the commands below are the manual equivalent for development.
+
+The playbook applies `common`, `security` and `platypus`. The `security`
+role hardens SSH and configures UFW for every target, then diverges:
+fail2ban and open HTTP/HTTPS ports on a VPS (`-e platypus_target=vps`),
+a Tailscale firewall rule on a home server (the default).
 
 ### Check the environment
 
@@ -101,13 +203,16 @@ provide a ready-to-use configuration management environment for dev and prod.
 ansible --version
 ```
 
-### Ping the dev environment
+### Ping the local environment
 
 ```bash
-ansible platypus -i inventory/dev -m ping
+ansible localhost -i inventory/dev -m ping
 ```
 
 ### Run the playbook
+
+Use `-i inventory/dev` on a development box or `-i inventory/prod` on the
+production server:
 
 ```bash
 # Syntax check
@@ -168,7 +273,9 @@ A Textual-based TUI is included for configuring a Linux server interactively. It
 The first menu entry, **Sequential Setup (step-by-step)**, runs the full setup
 in a safe order — Docker → Caddy → SSH hardening → UFW → VPN. It asks for
 confirmation before the SSH and UFW stages and lets you pick Tailscale,
-WireGuard, or skip the VPN stage entirely.
+WireGuard, or skip the VPN stage entirely. On a VPS there is no VPN stage
+(the server already has a public IP); the exact task list follows the
+`target`/`mode` settings — see [Profiles and settings](#profiles-and-settings).
 
 ### Install and run
 
@@ -176,6 +283,8 @@ WireGuard, or skip the VPN stage entirely.
 # inside the project virtual environment
 pip install -e .
 platypus-tui
+# or, with explicit settings (flags > env vars > saved config)
+platypus-tui --mode simple --target vps
 ```
 
 Or without installing:
@@ -315,6 +424,7 @@ Useful flags: `--run` starts the stack right away with `docker compose up -d`,
 
 | Script | Purpose |
 |---|---|
+| `bootstrap.sh` | One-line installer: system packages + repo + venv + Ansible + playbook |
 | `scripts/backup.sh` | Archives `BACKUP_DIRS` to `BACKUP_DEST`, keeps `BACKUP_RETENTION` days of backups, optional S3 upload (`S3_BUCKET`) |
 | `scripts/install-backup-cron.sh` | Installs the `/etc/cron.d/platypus-backup` cron job |
 | `scripts/install-dashboard-service.sh` | Registers `platypus-dashboard.service` (starts on boot) |
@@ -355,7 +465,7 @@ molecule test
 
 ## Notes
 
-- Update the SSH details in `inventory/dev/hosts.yml` to match your development environment.
-- For production, fill `inventory/prod/hosts.yml` with real servers.
+- Ansible runs on the server itself via `ansible_connection: local` — there is no SSH or remote inventory to configure.
+- Pick environment variables with `-i inventory/dev` (development) or `-i inventory/prod` (production).
 - Collections are installed into `./collections` and are not committed to git (see `.gitignore`).
-- The `roles/` directory holds both Ansible roles (`common`, `platypus`) and recipe role templates (the ones with `template.yml` and `questions.yml`).
+- The `roles/` directory holds both Ansible roles (`common`, `security`, `platypus`) and recipe role templates (the ones with `template.yml` and `questions.yml`).

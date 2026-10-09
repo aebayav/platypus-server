@@ -1,0 +1,7 @@
+---
+# security role: handlers
+- name: Restart SSH service
+  ansible.builtin.service:
+    name: "{{ ssh_service_name }}"
+    state: restarted
+  become: true

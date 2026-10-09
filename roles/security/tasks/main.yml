@@ -1,0 +1,101 @@
+---
+# security role: tasks
+#
+# SSH hardening and the UFW firewall run for every target.  The steps then
+# diverge depending on what the machine is:
+#
+#   vps  — public server: additionally open HTTP/HTTPS for the reverse proxy
+#          and install fail2ban to protect SSH from brute force
+#   home — LAN device: additionally allow the Tailscale interface so remote
+#          access keeps working behind the firewall
+
+- name: Write the SSH hardening drop-in config
+  ansible.builtin.copy:
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+      PubkeyAuthentication yes
+      KbdInteractiveAuthentication no
+      X11Forwarding no
+      MaxAuthTries 3
+      ClientAliveInterval 300
+      ClientAliveCountMax 2
+    dest: /etc/ssh/sshd_config.d/99-hardening.conf
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  when: ansible_os_family == "Debian"
+  notify: Restart SSH service
+
+- name: Install UFW
+  ansible.builtin.package:
+    name: ufw
+    state: present
+  become: true
+  when: ansible_os_family == "Debian"
+
+- name: Set UFW default policies
+  community.general.ufw:
+    direction: "{{ item.direction }}"
+    policy: "{{ item.policy }}"
+  loop:
+    - {direction: incoming, policy: deny}
+    - {direction: outgoing, policy: allow}
+  become: true
+  when: ansible_os_family == "Debian"
+
+- name: Allow SSH through UFW
+  community.general.ufw:
+    rule: allow
+    port: "22"
+    proto: tcp
+  become: true
+  when: ansible_os_family == "Debian"
+
+- name: Allow HTTP and HTTPS through UFW (VPS only)
+  community.general.ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+  loop:
+    - "80"
+    - "443"
+  become: true
+  when:
+    - ansible_os_family == "Debian"
+    - platypus_target == "vps"
+
+- name: Allow the Tailscale interface through UFW (home server only)
+  community.general.ufw:
+    rule: allow
+    interface: tailscale0
+  become: true
+  when:
+    - ansible_os_family == "Debian"
+    - platypus_target == "home"
+
+- name: Enable UFW
+  community.general.ufw:
+    state: enabled
+  become: true
+  when: ansible_os_family == "Debian"
+
+- name: Install fail2ban (VPS only)
+  ansible.builtin.package:
+    name: fail2ban
+    state: present
+  become: true
+  when:
+    - ansible_os_family == "Debian"
+    - platypus_target == "vps"
+
+- name: Enable and start fail2ban (VPS only)
+  ansible.builtin.service:
+    name: fail2ban
+    state: started
+    enabled: true
+  become: true
+  when:
+    - ansible_os_family == "Debian"
+    - platypus_target == "vps"

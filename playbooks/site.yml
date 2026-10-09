@@ -1,9 +1,17 @@
 ---
-# Main playbook: configures all platypus-server hosts
-- name: Configure platypus-server hosts
-  hosts: platypus
+# Main playbook: configures this server locally (ansible_connection: local)
+- name: Configure platypus server locally
+  hosts: localhost
+  connection: local
   gather_facts: true
+
+  vars:
+    # home = home server behind NAT; vps = public VPS. The security role
+    # changes its installation steps accordingly (e.g. fail2ban and the
+    # HTTP/HTTPS firewall rules only apply to a VPS).
+    platypus_target: "{{ lookup('env', 'PLATYPUS_TARGET') | default('home', true) }}"
 
   roles:
     - common
+    - security
     - platypus

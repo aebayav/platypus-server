@@ -1,5 +1,6 @@
 """Textual application: interactive server setup."""
 
+import argparse
 import asyncio
 import contextlib
 import os
@@ -20,11 +21,14 @@ from textual.widgets import (
     ListView,
     LoadingIndicator,
     Markdown,
+    RadioButton,
+    RadioSet,
     RichLog,
     Static,
 )
 
-from .tasks import SETUP_ORDER, TASKS
+from .settings import MODES, TARGETS, Settings, resolve, save_config
+from .tasks import has_vpn_stage, setup_order, visible_tasks
 from .tasks.base import Step, Task
 from .tasks.vpn import TAILSCALE_TASK, WIREGUARD_TASK
 
@@ -142,27 +146,21 @@ class VpnChoiceModal(ModalScreen[str]):
         with Vertical(id="dialog"):
             yield Static("VPN Selection", classes="dialog-title")
             yield Static(
-                "Choose how to set up secure remote access for this server.",
+                "Choose how this server should be reachable from outside.",
                 classes="dialog-subtitle",
             )
-            with Vertical(id="vpn-options"):
-                with Vertical(classes="vpn-option"):
-                    yield Static("Tailscale", classes="vpn-option-name")
-                    yield Static(
-                        "Zero-config mesh VPN. Authenticate via a browser URL "
-                        "after install — no manual key exchange needed.",
-                        classes="vpn-option-desc",
-                    )
-                    yield Button("Install Tailscale", variant="primary", id="tailscale")
-                with Vertical(classes="vpn-option"):
-                    yield Static("WireGuard", classes="vpn-option-name")
-                    yield Static(
-                        "Self-hosted VPN. Generates server keys and a wg0 "
-                        "interface on 10.13.13.1/24 (UDP 51820). "
-                        "Peers must be added manually.",
-                        classes="vpn-option-desc",
-                    )
-                    yield Button("Install WireGuard", variant="primary", id="wireguard")
+            yield Button(
+                "Install Tailscale — zero-config mesh VPN",
+                variant="primary",
+                id="tailscale",
+                classes="vpn-button",
+            )
+            yield Button(
+                "Install WireGuard — self-hosted VPN",
+                variant="primary",
+                id="wireguard",
+                classes="vpn-button",
+            )
             with Horizontal(classes="dialog-buttons"):
                 yield Button("Skip VPN", variant="default", id="skip")
 
@@ -185,44 +183,174 @@ class VpnChoiceModal(ModalScreen[str]):
 
 
 class MainScreen(Screen):
-    """Main menu listing all available tasks."""
+    """Main menu listing the tasks for the current profile."""
 
     BINDINGS = [Binding("q", "quit", "Quit")]
 
     def compose(self) -> ComposeResult:
+        settings = getattr(self.app, "settings", None) or Settings()
+        tasks = visible_tasks(settings.target, settings.mode)
         yield Header()
         with Vertical(id="main-body"):
             yield Static("Platypus Server Setup", classes="main-title")
             yield Static(
-                "Select a task to configure this Linux server.",
+                self._subtitle(settings, len(tasks)),
                 classes="subtitle",
             )
             with ListView(id="task-list"):
                 # Sequential Setup — top entry, visually distinct
-                with ListItem(id="sequential"):
+                with ListItem():
                     yield Label("Sequential Setup", classes="item-title item-title--highlight")
                     yield Label(
                         "Run all stages in order, with per-stage confirmation",
                         classes="item-hint",
                     )
                 # Individual tasks
-                for task in TASKS:
+                for task in tasks:
                     hint = _TASK_HINTS.get(task.id, "")
                     with ListItem():
                         yield Label(task.title, classes="item-title")
                         if hint:
                             yield Label(hint, classes="item-hint")
+                # Settings — bottom entry
+                with ListItem():
+                    yield Label("Settings", classes="item-title item-title--highlight")
+                    yield Label(self._settings_hint(settings), classes="item-hint")
         yield Footer()
+
+    @staticmethod
+    def _subtitle(settings: Settings, task_count: int) -> str:
+        profile = (
+            "Home server — VPN for remote access"
+            if settings.target == "home"
+            else "VPS — public IP, HTTPS via reverse proxy"
+        )
+        mode = "simple" if settings.simple else "full"
+        return f"Select a task ({task_count}) · {profile} · {mode} mode"
+
+    @staticmethod
+    def _settings_hint(settings: Settings) -> str:
+        target = "home server" if settings.target == "home" else "VPS"
+        mode = "simple" if settings.simple else "full"
+        return f"Current: {target} · {mode} mode — press Enter to change"
 
     @on(ListView.Selected, "#task-list")
     def _on_selected(self, event: ListView.Selected) -> None:
+        settings = self.app.settings
+        tasks = visible_tasks(settings.target, settings.mode)
         index = self.query_one("#task-list", ListView).index
         if index is None:
             return
         if index == 0:
-            self.app.push_screen(SequentialSetupScreen())
-        elif index - 1 < len(TASKS):
-            self.app.push_screen(TaskScreen(TASKS[index - 1]))
+            self.app.push_screen(SequentialSetupScreen(settings))
+        elif index <= len(tasks):
+            self.app.push_screen(TaskScreen(tasks[index - 1]))
+        else:
+            self._open_settings()
+
+    def _open_settings(self) -> None:
+        self.app.push_screen(SettingsScreen(), self._on_settings_result)
+
+    def _on_settings_result(self, new_settings: Settings | None) -> None:
+        if new_settings is None:
+            return
+        self.app.settings = new_settings
+        save_config(new_settings)
+        self._rebuild_task_list()
+
+    def _rebuild_task_list(self) -> None:
+        settings = self.app.settings
+        tasks = visible_tasks(settings.target, settings.mode)
+        items: list[ListItem] = [
+            ListItem(
+                Label("Sequential Setup", classes="item-title item-title--highlight"),
+                Label(
+                    "Run all stages in order, with per-stage confirmation",
+                    classes="item-hint",
+                ),
+            )
+        ]
+        for task in tasks:
+            children: list = [Label(task.title, classes="item-title")]
+            hint = _TASK_HINTS.get(task.id, "")
+            if hint:
+                children.append(Label(hint, classes="item-hint"))
+            items.append(ListItem(*children))
+        items.append(
+            ListItem(
+                Label("Settings", classes="item-title item-title--highlight"),
+                Label(self._settings_hint(settings), classes="item-hint"),
+            )
+        )
+        list_view = self.query_one("#task-list", ListView)
+        list_view.clear()
+        list_view.mount_all(items)
+        list_view.index = 0
+        self.query_one(".subtitle", Static).update(
+            self._subtitle(settings, len(tasks))
+        )
+
+
+class SettingsScreen(Screen[Settings | None]):
+    """Change the server target and the interface mode."""
+
+    BINDINGS = [
+        Binding("escape", "back", "Back"),
+        Binding("b", "back", "Back"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        settings = getattr(self.app, "settings", None) or Settings()
+        yield Header()
+        with VerticalScroll(id="settings-body"):
+            yield Static("Settings", classes="task-title")
+            yield Markdown(
+                "What kind of server is this, and how much of the menu "
+                "should be shown? Changes are saved at once."
+            )
+            yield Static("Server target", classes="section")
+            with RadioSet(id="target-set", compact=True):
+                yield RadioButton(
+                    "Home server — behind NAT, VPN for remote access",
+                    value=settings.target == "home",
+                    id="target-home",
+                )
+                yield RadioButton(
+                    "VPS — public IP, reverse proxy + HTTPS",
+                    value=settings.target == "vps",
+                    id="target-vps",
+                )
+            yield Static("Interface", classes="section")
+            with RadioSet(id="mode-set", compact=True):
+                yield RadioButton(
+                    "Simple — essentials only",
+                    value=settings.simple,
+                    id="mode-simple",
+                )
+                yield RadioButton(
+                    "Full — every task",
+                    value=not settings.simple,
+                    id="mode-full",
+                )
+        with Horizontal(id="task-actions"):
+            yield Button("Save", variant="success", id="save")
+            yield Button("Back", variant="default", id="back")
+        yield Footer()
+
+    @on(Button.Pressed, "#save")
+    def _on_save(self) -> None:
+        target_set = self.query_one("#target-set", RadioSet)
+        mode_set = self.query_one("#mode-set", RadioSet)
+        target = "home" if target_set.pressed_button.id == "target-home" else "vps"
+        mode = "simple" if mode_set.pressed_button.id == "mode-simple" else "full"
+        self.dismiss(Settings(mode=mode, target=target))
+
+    @on(Button.Pressed, "#back")
+    def _on_back(self) -> None:
+        self.dismiss(None)
+
+    def action_back(self) -> None:
+        self.dismiss(None)
 
 
 class TaskScreen(Screen):
@@ -329,9 +457,11 @@ class SequentialSetupScreen(Screen):
         Binding("escape", "back", "Back"),
     ]
 
-    def __init__(self) -> None:
+    def __init__(self, settings: Settings | None = None) -> None:
         super().__init__()
-        self.plan = list(SETUP_ORDER)
+        self.settings = settings or Settings()
+        self.plan = setup_order(self.settings.target, self.settings.mode)
+        self.has_vpn = has_vpn_stage(self.settings.target)
         self.running = False
 
     # ------------------------------------------------------------------
@@ -342,11 +472,7 @@ class SequentialSetupScreen(Screen):
         yield Header()
         with VerticalScroll(id="setup-body"):
             yield Static("Sequential Setup", classes="task-title")
-            yield Markdown(
-                "Runs the server setup **stage by stage**, in a safe order. "
-                "Stages with a warning (SSH hardening, UFW) ask for confirmation "
-                "before they run, and you can skip any of them."
-            )
+            yield Markdown(self._description())
             yield Static("Stages", classes="section")
             for i, task in enumerate(self.plan, start=1):
                 yield Static(
@@ -355,13 +481,14 @@ class SequentialSetupScreen(Screen):
                     classes="plan-item",
                     markup=True,
                 )
-            vpn_index = len(self.plan) + 1
-            yield Static(
-                f"{_STAGE_PENDING}{vpn_index}. VPN (Tailscale or WireGuard)",
-                id="stage-vpn",
-                classes="plan-item",
-                markup=True,
-            )
+            if self.has_vpn:
+                vpn_index = len(self.plan) + 1
+                yield Static(
+                    f"{_STAGE_PENDING}{vpn_index}. VPN (Tailscale or WireGuard)",
+                    id="stage-vpn",
+                    classes="plan-item",
+                    markup=True,
+                )
             yield Static("Output", classes="section")
             yield LoadingIndicator(id="spinner")
             yield RichLog(id="output", wrap=True, markup=True, highlight=True)
@@ -369,6 +496,19 @@ class SequentialSetupScreen(Screen):
             yield Button("Start", variant="success", id="start")
             yield Button("Back", variant="default", id="back")
         yield Footer()
+
+    def _description(self) -> str:
+        base = (
+            "Runs the server setup **stage by stage**, in a safe order. "
+            "Stages with a warning (SSH hardening, UFW) ask for confirmation "
+            "before they run, and you can skip any of them."
+        )
+        if self.has_vpn:
+            return base + " The final stage asks for **Tailscale or WireGuard**."
+        return (
+            base + " This is a **VPS** — there is no VPN stage (public IP); "
+            "Caddy handles HTTPS."
+        )
 
     def on_mount(self) -> None:
         self.query_one("#spinner", LoadingIndicator).display = False
@@ -406,10 +546,15 @@ class SequentialSetupScreen(Screen):
     async def _run_sequence(self) -> None:
         log = self.query_one("#output", RichLog)
         root = is_root()
-        total = len(self.plan) + 1
+        total = len(self.plan) + (1 if self.has_vpn else 0)
         for index, task in enumerate(self.plan, start=1):
             await self._run_stage(index, total, task, log, root)
-        await self._run_vpn_stage(total, total, log, root)
+        if self.has_vpn:
+            await self._run_vpn_stage(total, total, log, root)
+        else:
+            log.write(
+                "\n[dim]VPN stage skipped — VPS target (public IP, no VPN needed).[/]"
+            )
         self.query_one("#spinner", LoadingIndicator).display = False
         log.write("\n[bold green]Sequential setup complete![/]")
         self.running = False
@@ -471,6 +616,10 @@ class PlatypusApp(App):
     TITLE = "Platypus Server Setup"
     BINDINGS = [Binding("q", "quit", "Quit")]
 
+    def __init__(self, settings: Settings | None = None) -> None:
+        super().__init__()
+        self.settings = settings or resolve()
+
     CSS = """
     /* ------------------------------------------------------------------ */
     /* Global                                                               */
@@ -524,6 +673,15 @@ class PlatypusApp(App):
         height: 1fr;
     }
 
+    #settings-body {
+        padding: 1 2;
+        height: 1fr;
+    }
+
+    #settings-body RadioSet {
+        margin: 0 1 0 1;
+    }
+
     .task-title {
         text-style: bold;
         color: $accent;
@@ -569,6 +727,7 @@ class PlatypusApp(App):
 
     /* Action bar */
     #task-actions {
+        dock: bottom;
         padding: 1 2;
         height: auto;
         align: center middle;
@@ -584,6 +743,7 @@ class PlatypusApp(App):
     #dialog {
         width: 76;
         height: auto;
+        max-height: 90%;
         border: thick $surface-lighten-1;
         background: $surface;
         padding: 1 2;
@@ -612,26 +772,10 @@ class PlatypusApp(App):
         margin-left: 1;
     }
 
-    /* VPN option cards */
-    #vpn-options {
+    /* VPN choice buttons */
+    .vpn-button {
         margin-top: 1;
-    }
-
-    .vpn-option {
-        border: round $primary-darken-2;
-        padding: 1 2;
-        margin-bottom: 1;
-    }
-
-    .vpn-option-name {
-        text-style: bold;
-        color: $accent;
-        padding-bottom: 0;
-    }
-
-    .vpn-option-desc {
-        color: $text-muted;
-        padding-bottom: 1;
+        width: 100%;
     }
     """
 
@@ -645,9 +789,34 @@ class PlatypusApp(App):
             )
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     """Run the TUI."""
-    PlatypusApp().run()
+    parser = argparse.ArgumentParser(
+        prog="platypus-tui",
+        description="Interactive Linux server setup (Textual).",
+    )
+    parser.add_argument(
+        "--mode",
+        choices=MODES,
+        default=None,
+        help=(
+            "interface mode: 'simple' shows the essentials only, 'full' shows "
+            "every task (default: PLATYPUS_MODE, then the saved settings, "
+            "then 'full')"
+        ),
+    )
+    parser.add_argument(
+        "--target",
+        choices=TARGETS,
+        default=None,
+        help=(
+            "server target: 'home' for a home server behind NAT, 'vps' for a "
+            "public VPS (default: PLATYPUS_TARGET, then the saved settings, "
+            "then 'home')"
+        ),
+    )
+    args = parser.parse_args(argv)
+    PlatypusApp(settings=resolve(mode=args.mode, target=args.target)).run()
 
 
 if __name__ == "__main__":
