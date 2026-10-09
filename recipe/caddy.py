@@ -89,12 +89,14 @@ def _write_snippet(content: str) -> None:
 
 def _reload(log: Log) -> None:
     if CADDY_CONTAINER:
-        cmd = [
-            "docker", "exec", CADDY_CONTAINER,
-            "caddy", "reload", "--config", "/etc/caddy/Caddyfile",
-        ]
+        cmd = ["docker", "exec", CADDY_CONTAINER, "caddy", "reload"]
     else:
-        cmd = ["caddy", "reload", "--config", str(CADDYFILE_PATH)]
+        # Bare `caddy reload` signals the running instance via its admin
+        # API (localhost:2019). Do NOT pass --config: the managed snippet
+        # (platypus.conf) is not Caddy's main config, and a comment-only
+        # snippet is not even valid JSON — passing it as --config makes
+        # Caddy fail with a JSON parse error.
+        cmd = ["caddy", "reload"]
 
     log(f"  caddy reload  ({' '.join(cmd)})")
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
