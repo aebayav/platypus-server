@@ -46,7 +46,7 @@ from typing import Any
 
 import yaml
 
-from .model import ROLES_SOURCE_DIR
+from .model import role_dir
 
 CADDYFILE_PATH = Path(
     os.environ.get(
@@ -68,8 +68,9 @@ class CaddyError(Exception):
 # ---------------------------------------------------------------------------
 
 def _caddy_section(role_name: str) -> dict | None:
-    path = ROLES_SOURCE_DIR / role_name / "template.yml"
-    if not path.exists():
+    try:
+        path = role_dir(role_name) / "template.yml"
+    except FileNotFoundError:
         return None
     with path.open(encoding="utf-8") as fh:
         tmpl = yaml.safe_load(fh) or {}

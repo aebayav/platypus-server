@@ -16,7 +16,7 @@ from typing import Any
 import yaml
 
 from . import state as state_mod
-from .model import PLATYPUS_ROLES_DIR, ROLES_SOURCE_DIR
+from .model import PLATYPUS_ROLES_DIR, role_dir
 from .renderer import load_answers, save_answers
 from .transition import TransitionError, switch
 
@@ -27,7 +27,10 @@ from .transition import TransitionError, switch
 
 def _collect_answers(role_name: str) -> dict[str, Any]:
     """Prompt the user for each question defined in questions.yml."""
-    questions_file = ROLES_SOURCE_DIR / role_name / "questions.yml"
+    try:
+        questions_file = role_dir(role_name) / "questions.yml"
+    except FileNotFoundError as exc:
+        raise SystemExit(f"Error: {exc}") from None
     if not questions_file.exists():
         raise SystemExit(
             f"Error: questions.yml not found for role {role_name!r}"
