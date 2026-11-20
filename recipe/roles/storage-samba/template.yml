@@ -34,4 +34,3 @@ compose_template: |
         -p
       volumes:
         - ./data:/share
-
