@@ -1,0 +1,60 @@
+"""Unified `platypus` command: one entry point for every tool."""
+
+from __future__ import annotations
+
+import importlib
+import sys
+
+SUBCOMMANDS: dict[str, tuple[str, str, str | None]] = {
+    "doctor":    ("doctor",          "main", None),
+    "setup":     ("tui.app",         "main", None),
+    "dashboard": ("dashboard.app",   "main", None),
+    "switch":    ("recipe.cli",      "main", "switch"),
+    "status":    ("recipe.cli",      "main", "status"),
+    "generate":  ("zero2server.cli", "main", None),
+}
+
+USAGE = (
+    "usage: platypus [--version] <command> [args...]\n\n"
+    "Commands:\n"
+    "  doctor     pre-flight checks for a fresh install\n"
+    "  setup      interactive server setup (TUI)\n"
+    "  dashboard  web dashboard\n"
+    "  switch     switch the server to another role\n"
+    "  status     show active and dormant roles\n"
+    "  generate   generate docker-compose.yml + Caddyfile\n"
+)
+
+
+def _version() -> str:
+    from importlib.metadata import PackageNotFoundError, version
+
+    try:
+        return version("platypus-server")
+    except PackageNotFoundError:
+        return "unknown"
+
+
+def _run(module_name: str, func_name: str, prefix: str | None, rest: list[str]) -> int:
+    module = importlib.import_module(module_name)
+    argv = ([prefix] + rest) if prefix else rest
+    result = getattr(module, func_name)(argv)
+    return 0 if result is None else int(result)
+
+
+def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+    if not argv or argv[0] in ("-h", "--help"):
+        print(USAGE, end="")
+        return 0
+    if argv[0] == "--version":
+        print(f"platypus {_version()}")
+        return 0
+    command, rest = argv[0], argv[1:]
+    if command not in SUBCOMMANDS:
+        print(f"platypus: unknown command {command!r}\n", file=sys.stderr)
+        print(USAGE, end="", file=sys.stderr)
+        return 2
+    module_name, func_name, prefix = SUBCOMMANDS[command]
+    return _run(module_name, func_name, prefix, rest)

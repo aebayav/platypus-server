@@ -46,3 +46,13 @@ def test_init_versions_come_from_metadata():
     assert dashboard.__version__ == expected
     assert tui.__version__ == expected
     assert zero2server.__version__ == expected
+
+
+def test_console_scripts_keep_aliases_and_new_dispatcher():
+    scripts = PYPROJECT["project"]["scripts"]
+    assert scripts["platypus"] == "platypus_cli.cli:main"
+    assert scripts["platypus-doctor"] == "doctor:main"
+    assert scripts["platypus-tui"] == "tui.app:main"
+    assert scripts["platypus-dashboard"] == "dashboard.app:main"
+    assert scripts["platypus-server"] == "recipe.cli:main"
+    assert scripts["zero-to-server"] == "zero2server.cli:main"
