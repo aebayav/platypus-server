@@ -33,20 +33,57 @@ jobs:
       - name: Run yamllint
         run: yamllint .
 
-  tui:
-    name: TUI smoke tests
+      - name: Shell syntax check
+        run: bash -n bootstrap.sh scripts/*.sh
+
+  test:
+    name: Tests (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
-
-      - name: Install TUI and test dependencies
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install package and test dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
-
       - name: Run tests
         run: pytest -q
+
+  package:
+    name: Build wheel & smoke-test install
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build
+      - name: Install the wheel into a clean venv
+        run: |
+          python -m venv /tmp/smoke
+          /tmp/smoke/bin/pip install dist/*.whl
+      - name: Import smoke + packaged-data probe
+        run: |
+          /tmp/smoke/bin/python - <<'EOF'
+          import platypus_cli, tui.app, dashboard.app, recipe.cli, zero2server.cli, doctor
+          from recipe.model import builtin_roles
+          roles = set(builtin_roles())
+          expected = {"minecraft-server", "storage-nextcloud", "storage-samba",
+                      "pihole", "syncthing", "jellyfin", "assetto-corsa"}
+          assert expected <= roles, f"wheel is missing role data: {expected - roles}"
+          print("packaged roles OK:", sorted(roles))
+          EOF
+          /tmp/smoke/bin/platypus --version
+          /tmp/smoke/bin/platypus --help > /dev/null
