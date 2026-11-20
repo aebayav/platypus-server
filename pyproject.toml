@@ -35,7 +35,7 @@ platypus-tui = "tui.app:main"
 platypus-dashboard = "dashboard.app:main"
 platypus-server = "recipe.cli:main"
 zero-to-server = "zero2server.cli:main"
-platypus = "doctor:main"
+platypus = "platypus_cli.cli:main"
 platypus-doctor = "doctor:main"
 
 [project.optional-dependencies]
@@ -45,7 +45,7 @@ dev = [
 ]
 
 [tool.setuptools]
-packages = ["tui", "tui.tasks", "dashboard", "zero2server", "recipe"]
+packages = ["tui", "tui.tasks", "dashboard", "zero2server", "recipe", "platypus_cli"]
 py-modules = ["doctor"]
 
 [tool.setuptools.package-data]
