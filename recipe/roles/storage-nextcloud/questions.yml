@@ -32,4 +32,3 @@ questions:
     label: "Yerel HTTP portu (Caddy arkasında genellikle 8080)"
     type: integer
     default: 8080
-

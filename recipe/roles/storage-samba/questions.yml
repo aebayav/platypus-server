@@ -22,4 +22,3 @@ questions:
     label: "Zaman dilimi"
     type: text
     default: Europe/Istanbul
-

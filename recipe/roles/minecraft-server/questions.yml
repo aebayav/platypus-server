@@ -40,4 +40,3 @@ questions:
     type: confirm
     default: false
     required: true
-
