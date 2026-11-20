@@ -44,9 +44,9 @@ from . import caddy as caddy_mod
 from . import state as state_mod
 from .model import (
     PLATYPUS_ROLES_DIR,
-    ROLES_SOURCE_DIR,
     HistoryEntry,
     State,
+    role_dir,
 )
 from .renderer import load_answers, render_compose, save_answers, write_compose
 
@@ -62,11 +62,10 @@ class TransitionError(Exception):
 # ---------------------------------------------------------------------------
 
 def _load_template(role_name: str) -> dict:
-    path = ROLES_SOURCE_DIR / role_name / "template.yml"
-    if not path.exists():
-        raise TransitionError(
-            f"Role {role_name!r} not found — expected template at {path}"
-        )
+    try:
+        path = role_dir(role_name) / "template.yml"
+    except FileNotFoundError:
+        raise TransitionError(f"Role {role_name!r} not found") from None
     with path.open(encoding="utf-8") as fh:
         return yaml.safe_load(fh) or {}
 

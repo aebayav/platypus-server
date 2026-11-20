@@ -11,7 +11,7 @@ from typing import Any
 
 import yaml
 
-from .model import PLATYPUS_ROLES_DIR, ROLES_SOURCE_DIR
+from .model import PLATYPUS_ROLES_DIR, role_dir
 
 
 # ---------------------------------------------------------------------------
@@ -23,7 +23,7 @@ def render_compose(role_name: str, answers: dict[str, Any]) -> str:
     Load ``compose_template`` from template.yml and substitute
     ``{answers[key]}`` placeholders with the provided *answers* dict.
     """
-    template_path = ROLES_SOURCE_DIR / role_name / "template.yml"
+    template_path = role_dir(role_name) / "template.yml"
     with template_path.open(encoding="utf-8") as fh:
         tmpl = yaml.safe_load(fh) or {}
 

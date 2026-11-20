@@ -110,6 +110,34 @@ PLATYPUS_DIR:       Path = Path("/opt/platypus")
 PLATYPUS_ROLES_DIR: Path = PLATYPUS_DIR / "roles"
 STATE_FILE:         Path = PLATYPUS_DIR / "state.yml"
 
-# Built-in role templates (shipped with the repo)
-ROLES_SOURCE_DIR: Path = Path(__file__).parent.parent / "roles"
+# Built-in role templates. PACKAGED_ROLES_DIR ships inside the wheel
+# (recipe/roles/); REPO_ROLES_DIR is the repo-root roles/ directory, used as
+# a fallback in editable checkouts.
+PACKAGED_ROLES_DIR: Path = Path(__file__).parent / "roles"
+REPO_ROLES_DIR: Path = Path(__file__).parent.parent / "roles"
+
+
+def role_dir(role_name: str) -> Path:
+    """Return the directory defining *role_name*'s template.yml.
+
+    The packaged directory wins; the repo-root fallback is checked second.
+    """
+    for base in (PACKAGED_ROLES_DIR, REPO_ROLES_DIR):
+        candidate = base / role_name
+        if (candidate / "template.yml").is_file():
+            return candidate
+    raise FileNotFoundError(f"no template.yml found for role {role_name!r}")
+
+
+def builtin_roles() -> list[str]:
+    """Sorted names of all built-in roles found in either source dir."""
+    names: set[str] = set()
+    for base in (PACKAGED_ROLES_DIR, REPO_ROLES_DIR):
+        if base.is_dir():
+            names |= {
+                entry.name
+                for entry in base.iterdir()
+                if (entry / "template.yml").is_file()
+            }
+    return sorted(names)
 
