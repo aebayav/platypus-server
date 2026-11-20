@@ -37,7 +37,7 @@ fi
 
 echo ">> Installing dashboard dependencies..."
 "$VENV/bin/pip" install --upgrade pip >/dev/null
-(cd "$REPO_DIR" && "$VENV/bin/pip" install -e ".[dashboard]")
+(cd "$REPO_DIR" && "$VENV/bin/pip" install -e ".")
 
 echo ">> Writing systemd unit -> $UNIT"
 cat > "$UNIT" <<EOF

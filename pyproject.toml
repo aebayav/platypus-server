@@ -1,16 +1,33 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "platypus-tui"
-version = "0.1.0"
+name = "platypus-server"
+version = "0.2.0"
 description = "Interactive TUI and web dashboard for Linux server setup and monitoring"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
+authors = [
+    { name = "aebayav" },
+]
+urls = { Homepage = "https://github.com/aebayav/platypus-server", Repository = "https://github.com/aebayav/platypus-server", "Bug Tracker" = "https://github.com/aebayav/platypus-server/issues" }
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Environment :: Console",
+    "Operating System :: POSIX :: Linux",
+]
 dependencies = [
-    "textual>=0.60.0",
+    "textual>=0.77.0",
     "pyyaml>=6.0",
+    "flask>=3.0",
+    "psutil>=5.9",
 ]
 
 [project.scripts]
@@ -24,13 +41,7 @@ platypus-doctor = "doctor:main"
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0",
-]
-dashboard = [
-    "flask>=3.0",
-    "psutil>=5.9",
-]
-zero2server = [
-    "pyyaml>=6.0",
+    'tomli>=2.0; python_version < "3.11"',
 ]
 
 [tool.setuptools]
