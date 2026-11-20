@@ -7,6 +7,9 @@ exclude_paths:
   - collections/
   - .github/
   - .molecule/
+  # Python package data (role templates for the recipe system), not
+  # Ansible content — the repo's own yamllint still covers them.
+  - recipe/roles/
 
 # skip_list:
 #   - name[missing]
