@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor
 from flask import Flask, jsonify, redirect, request, send_from_directory, session, url_for
 
 from . import compose, dockerctl, firewall, metrics, systemd
+from . import __version__ as _DASHBOARD_VERSION
 from .auth import (
     USING_DEFAULT_CREDENTIALS,
     check_credentials,
@@ -107,8 +108,6 @@ def _snapshot() -> dict:
 # ---------------------------------------------------------------------------
 # Public health endpoint — no auth required (for monitoring tools)
 # ---------------------------------------------------------------------------
-
-_DASHBOARD_VERSION = "0.1.0"
 
 
 @app.get("/health")

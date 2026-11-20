@@ -58,19 +58,26 @@ echo ">> package     : $PACKAGE_SPEC"
 # System packages: python3, git, curl, sudo and pipx for the toolkit install.
 # ---------------------------------------------------------------------------
 install_system_packages() {
-    echo ">> Installing system packages (python3, git, curl, sudo, pipx)..."
+    echo ">> Installing system packages (python3, git, curl, sudo)..."
     if command -v apt-get >/dev/null 2>&1; then
         export DEBIAN_FRONTEND=noninteractive
         apt-get update -y
-        apt-get install -y python3 python3-venv python3-pip python3-pipx git curl ca-certificates sudo
+        apt-get install -y python3 python3-venv python3-pip git curl ca-certificates sudo
+        # Distro package names for pipx vary and some releases do not ship
+        # it at all; every miss falls through to the pip fallback below.
+        apt-get install -y pipx || true
     elif command -v dnf >/dev/null 2>&1; then
-        dnf install -y python3 python3-pip git curl ca-certificates sudo pipx
+        dnf install -y python3 python3-pip git curl ca-certificates sudo
+        dnf install -y pipx || true
     elif command -v apk >/dev/null 2>&1; then
-        apk add --no-cache python3 py3-pip git curl ca-certificates sudo py3-pipx
+        apk add --no-cache python3 py3-pip git curl ca-certificates sudo
+        apk add --no-cache py3-pipx || true
     elif command -v pacman >/dev/null 2>&1; then
-        pacman -Sy --noconfirm python python-pip git curl ca-certificates sudo python-pipx
+        pacman -Sy --noconfirm python python-pip git curl ca-certificates sudo
+        pacman -Sy --noconfirm python-pipx || true
     elif command -v zypper >/dev/null 2>&1; then
-        zypper --non-interactive install python3 python3-pip git curl ca-certificates sudo python3-pipx
+        zypper --non-interactive install python3 python3-pip git curl ca-certificates sudo
+        zypper --non-interactive install python3-pipx || true
     else
         echo "Unsupported package manager. Install python3, python3-pip, git and curl manually." >&2
         exit 1

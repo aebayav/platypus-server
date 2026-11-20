@@ -487,6 +487,7 @@ To run the same checks locally:
 
 ```bash
 pip install -e ".[dev]"
+pip install -r requirements.txt
 pytest -q
 ansible-galaxy collection install -r requirements.yml -p collections
 ansible-playbook --syntax-check playbooks/site.yml -i inventory/dev
