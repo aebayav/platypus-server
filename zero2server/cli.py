@@ -49,7 +49,7 @@ def _check_existing_compose(out_dir: str) -> bool:
     return choice in ("y", "yes")
 
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(
         prog="zero-to-server",
         description="Generate a personalised docker-compose setup and optionally run it.",
@@ -72,7 +72,7 @@ def main() -> None:
         metavar="DIR",
         help="Output directory for generated files (default: prompted interactively).",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     # ------------------------------------------------------------------
     # Preflight: warn if --run requested but docker compose unavailable

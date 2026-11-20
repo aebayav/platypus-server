@@ -1,5 +1,6 @@
 """Flask app serving the Platypus dashboard and its REST API."""
 
+import argparse
 import os
 import socket
 import threading
@@ -469,10 +470,29 @@ def api_recipe():
 # Entry point
 # ---------------------------------------------------------------------------
 
-def main() -> None:
-    host = os.environ.get("DASHBOARD_HOST", "0.0.0.0")
-    port = int(os.environ.get("DASHBOARD_PORT", "5050"))
-    app.run(host=host, port=port, debug=False)
+def parse_dashboard_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse dashboard CLI flags; defaults come from the environment."""
+    parser = argparse.ArgumentParser(
+        prog="platypus dashboard",
+        description="Platypus web dashboard.",
+    )
+    parser.add_argument(
+        "--host",
+        default=os.environ.get("DASHBOARD_HOST", "0.0.0.0"),
+        help="bind address (default: DASHBOARD_HOST env var, else 0.0.0.0)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("DASHBOARD_PORT", "5050")),
+        help="bind port (default: DASHBOARD_PORT env var, else 5050)",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = parse_dashboard_args(argv)
+    app.run(host=args.host, port=args.port, debug=False)
 
 
 if __name__ == "__main__":
