@@ -194,7 +194,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
 # Entry point
 # ---------------------------------------------------------------------------
 
-def main() -> None:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="platypus-server",
         description="Platypus server role management",
@@ -208,9 +208,9 @@ def main() -> None:
     p_status = sub.add_parser("status", help="Show active role, dormant roles, history")
     p_status.set_defaults(func=_cmd_status)
 
-    args = parser.parse_args()
-    sys.exit(args.func(args))
+    args = parser.parse_args(argv)
+    return args.func(args)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
