@@ -251,6 +251,25 @@ def run_checks(ports: list[int]) -> list[Result]:
     ]
 
 
+def downgrade_busy_ports(result: Result) -> Result:
+    """Downgrade an "already in use" port failure to a warning.
+
+    Used by `--allow-busy` for re-runs where the stack is already up. Every
+    other failure — including port permission failures — passes through.
+    """
+    if (
+        result.failed
+        and result.label.startswith("port ")
+        and "already in use" in result.detail
+    ):
+        return Result(
+            result.label,
+            WARN,
+            result.detail + " — allowed by --allow-busy",
+        )
+    return result
+
+
 def print_report(results: list[Result]) -> int:
     """Print the report and return the process exit code (0 ok, 1 failed)."""
     symbols = {OK: "[OK]   ", WARN: "[WARN] ", FAIL: "[FAIL] "}
@@ -301,6 +320,14 @@ def main(argv: list[str] | None = None) -> int:
             f"{','.join(str(p) for p in DEFAULT_PORTS_HOME)})"
         ),
     )
+    parser.add_argument(
+        "--allow-busy",
+        action="store_true",
+        help=(
+            "treat ports already in use as warnings, not failures "
+            "(safe on re-runs where the stack is up)"
+        ),
+    )
     args = parser.parse_args(argv)
 
     target = args.target or os.environ.get("PLATYPUS_TARGET") or "home"
@@ -317,7 +344,10 @@ def main(argv: list[str] | None = None) -> int:
         return 2  # pragma: no cover — parser.error exits
 
     print(f"Target: {target}")
-    return print_report(run_checks(ports))
+    results = run_checks(ports)
+    if args.allow_busy:
+        results = [downgrade_busy_ports(r) for r in results]
+    return print_report(results)
 
 
 if __name__ == "__main__":

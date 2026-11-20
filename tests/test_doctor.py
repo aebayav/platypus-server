@@ -110,3 +110,46 @@ def test_port_in_use_then_free():
     finally:
         listener.close()
     assert doctor.check_port(port).status == doctor.OK
+
+
+def _fake_run_checks(results):
+    def run_checks(ports, *args, **kwargs):  # signature-compatible stub
+        return list(results)
+    return run_checks
+
+
+def test_allow_busy_downgrades_in_use_ports(monkeypatch, capsys):
+    fake = _fake_run_checks([
+        doctor.Result("OS", doctor.OK, "x"),
+        doctor.Result("port 5050", doctor.FAIL, "already in use by another process"),
+    ])
+    monkeypatch.setattr(doctor, "run_checks", fake)
+    assert doctor.main(["--allow-busy", "--ports", "5050"]) == 0
+    out = capsys.readouterr().out
+    assert "[WARN]  port 5050" in out
+    assert "allowed by --allow-busy" in out
+
+
+def test_busy_ports_still_fail_without_flag(monkeypatch, capsys):
+    fake = _fake_run_checks([
+        doctor.Result("port 5050", doctor.FAIL, "already in use by another process"),
+    ])
+    monkeypatch.setattr(doctor, "run_checks", fake)
+    assert doctor.main(["--ports", "5050"]) == 1
+
+
+def test_allow_busy_keeps_other_failures(monkeypatch):
+    fake = _fake_run_checks([
+        doctor.Result("sudo", doctor.FAIL, "sudo needs a password"),
+        doctor.Result("port 5050", doctor.FAIL, "already in use by another process"),
+    ])
+    monkeypatch.setattr(doctor, "run_checks", fake)
+    assert doctor.main(["--allow-busy", "--ports", "5050"]) == 1
+
+
+def test_allow_busy_keeps_permission_failures(monkeypatch):
+    fake = _fake_run_checks([
+        doctor.Result("port 80", doctor.FAIL, "could not bind (permission denied)"),
+    ])
+    monkeypatch.setattr(doctor, "run_checks", fake)
+    assert doctor.main(["--allow-busy", "--ports", "80"]) == 1
