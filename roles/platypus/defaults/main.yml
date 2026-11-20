@@ -1,5 +1,5 @@
 ---
 # platypus role: default variables
-app_name: platypus-server
-app_user: platypus
-app_port: 8080
+app_name: platypus-server  # noqa: var-naming
+app_user: platypus  # noqa: var-naming
+app_port: 8080  # noqa: var-naming
