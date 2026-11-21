@@ -75,9 +75,15 @@ jobs:
           python -m venv /tmp/smoke
           /tmp/smoke/bin/pip install dist/*.whl
       - name: Import smoke + packaged-data probe
+        working-directory: /tmp
         run: |
           /tmp/smoke/bin/python - <<'EOF'
           import platypus_cli, tui.app, dashboard.app, recipe.cli, zero2server.cli, doctor
+          import recipe.model
+          assert "site-packages" in recipe.model.__file__, (
+              "probe imported the checkout, not the wheel: "
+              + recipe.model.__file__
+          )
           from recipe.model import builtin_roles
           roles = set(builtin_roles())
           expected = {"minecraft-server", "storage-nextcloud", "storage-samba",

@@ -56,3 +56,10 @@ def test_console_scripts_keep_aliases_and_new_dispatcher():
     assert scripts["platypus-dashboard"] == "dashboard.app:main"
     assert scripts["platypus-server"] == "recipe.cli:main"
     assert scripts["zero-to-server"] == "zero2server.cli:main"
+
+
+def test_dashboard_health_version_comes_from_metadata():
+    from dashboard.app import _DASHBOARD_VERSION
+    from importlib.metadata import version
+
+    assert _DASHBOARD_VERSION == version("platypus-server")
