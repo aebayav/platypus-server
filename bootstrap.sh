@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # platypus-server bootstrap — one-line installer for the server itself.
 #
-# Downloads the repository, sets up a virtual environment and runs the
-# Ansible playbook locally on this machine (ansible_connection: local).
+# Installs the published `platypus-server` Python package via pipx into
+# shared paths, runs the pre-flight checks (`platypus doctor`), then
+# clones this repository and applies the Ansible playbook locally
+# (ansible_connection: local).
 #
 # Usage:
 #
@@ -14,6 +16,7 @@
 #                                VPS. Changes which installation steps run
 #                                (default: home).
 #   PLATYPUS_REPO_DIR=/path      Where to clone the repository (default: /opt/platypus-server)
+#   PLATYPUS_PACKAGE=name         PyPI distribution to install (default: platypus-server)
 #
 # Extra arguments after `--` are passed through to ansible-playbook:
 #   curl -fsSL .../bootstrap.sh | sudo bash -s -- --check
@@ -24,6 +27,13 @@ REPO_URL="https://github.com/aebayav/platypus-server.git"
 ENV_NAME="${PLATYPUS_ENV:-prod}"
 TARGET="${PLATYPUS_TARGET:-home}"
 REPO_DIR="${PLATYPUS_REPO_DIR:-/opt/platypus-server}"
+PACKAGE_NAME="${PLATYPUS_PACKAGE:-platypus-server}"
+PACKAGE_SPEC="${PACKAGE_NAME}>=0.2"
+
+# Shared pipx locations: one toolkit install for every user, with the
+# `platypus` command on every PATH (root and admin alike).
+export PIPX_HOME="/opt/platypus/pipx"
+export PIPX_BIN_DIR="/usr/local/bin"
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "Please run as root:  sudo $0" >&2
@@ -42,43 +52,32 @@ echo "== platypus-server bootstrap =="
 echo ">> environment : $ENV_NAME"
 echo ">> target      : $TARGET"
 echo ">> repo dir    : $REPO_DIR"
+echo ">> package     : $PACKAGE_SPEC"
 
 # ---------------------------------------------------------------------------
-# Pre-flight: run the doctor checks before touching anything.
+# System packages: python3, git, curl, sudo and pipx for the toolkit install.
 # ---------------------------------------------------------------------------
-if command -v python3 >/dev/null 2>&1; then
-    DOCTOR_URL="https://raw.githubusercontent.com/aebayav/platypus-server/main/doctor.py"
-    echo ">> Running pre-flight checks (doctor, target: $TARGET)..."
-    if curl -fsSL "$DOCTOR_URL" -o /tmp/platypus-doctor.py; then
-        if ! PLATYPUS_TARGET="$TARGET" python3 /tmp/platypus-doctor.py; then
-            echo "Pre-flight checks failed — fix the issues above and re-run." >&2
-            rm -f /tmp/platypus-doctor.py
-            exit 1
-        fi
-        rm -f /tmp/platypus-doctor.py
-    else
-        echo "WARNING: could not download the doctor checks; continuing without pre-flight." >&2
-    fi
-else
-    echo "ERROR: python3 is not installed. The setup requires Python 3.10+." >&2
-    echo "  Install it first, e.g.:  apt-get update && apt-get install -y python3" >&2
-    exit 1
-fi
-
 install_system_packages() {
     echo ">> Installing system packages (python3, git, curl, sudo)..."
     if command -v apt-get >/dev/null 2>&1; then
         export DEBIAN_FRONTEND=noninteractive
         apt-get update -y
         apt-get install -y python3 python3-venv python3-pip git curl ca-certificates sudo
+        # Distro package names for pipx vary and some releases do not ship
+        # it at all; every miss falls through to the pip fallback below.
+        apt-get install -y pipx || true
     elif command -v dnf >/dev/null 2>&1; then
         dnf install -y python3 python3-pip git curl ca-certificates sudo
+        dnf install -y pipx || true
     elif command -v apk >/dev/null 2>&1; then
         apk add --no-cache python3 py3-pip git curl ca-certificates sudo
+        apk add --no-cache py3-pipx || true
     elif command -v pacman >/dev/null 2>&1; then
         pacman -Sy --noconfirm python python-pip git curl ca-certificates sudo
+        pacman -Sy --noconfirm python-pipx || true
     elif command -v zypper >/dev/null 2>&1; then
         zypper --non-interactive install python3 python3-pip git curl ca-certificates sudo
+        zypper --non-interactive install python3-pipx || true
     else
         echo "Unsupported package manager. Install python3, python3-pip, git and curl manually." >&2
         exit 1
@@ -86,6 +85,36 @@ install_system_packages() {
 }
 
 install_system_packages
+
+# Not every distro ships a pipx package: fall back to pip for the tool itself.
+if ! command -v pipx >/dev/null 2>&1; then
+    echo ">> No distro pipx package - installing pipx via pip..."
+    python3 -m pip install --break-system-packages pipx || python3 -m pip install pipx
+fi
+
+# ---------------------------------------------------------------------------
+# Toolkit: install (or upgrade) the published platypus-server package.
+# `--force` makes this idempotent: first install and every re-run alike.
+# ---------------------------------------------------------------------------
+echo ">> Installing/upgrading the toolkit ($PACKAGE_SPEC) via pipx..."
+pipx install --force "$PACKAGE_SPEC"
+command -v platypus >/dev/null 2>&1 || {
+    echo "platypus command not found after pipx install" >&2
+    exit 1
+}
+
+# ---------------------------------------------------------------------------
+# Pre-flight: run the doctor checks before touching anything.
+# On a re-run with the stack already up, busy stack ports are expected
+# (/opt/platypus/state.yml exists), so --allow-busy downgrades them.
+# ---------------------------------------------------------------------------
+ALLOW_BUSY=""
+[ -f /opt/platypus/state.yml ] && ALLOW_BUSY="--allow-busy"
+echo ">> Running pre-flight checks (platypus doctor, target: $TARGET)..."
+PLATYPUS_TARGET="$TARGET" platypus doctor $ALLOW_BUSY || {
+    echo "Pre-flight checks failed - fix the issues above and re-run." >&2
+    exit 1
+}
 
 # Locate or fetch the repository.
 if [ -d "playbooks" ] && [ -f "playbooks/site.yml" ]; then

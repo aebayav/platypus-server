@@ -1,36 +1,73 @@
 # platypus-server
 
-Tools for setting up and operating a Linux home server: an interactive TUI,
-a web dashboard, a swappable server-role system, a docker-compose generator,
-and an Ansible configuration layer.
+Tools for setting up and operating a Linux home server: one unified `platypus`
+command, an interactive TUI, a web dashboard, a swappable server-role system,
+a docker-compose generator, and an Ansible configuration layer.
+
+## Quickstart
+
+```bash
+pipx install platypus-server
+platypus doctor                      # pre-flight checks
+platypus setup                       # interactive server setup (TUI)
+platypus dashboard                   # web dashboard on http://localhost:5050
+```
+
+`platypus setup` runs **unprivileged**: it escalates each privileged step
+with `sudo -n`, so do not run it under `sudo` — that would drop your home
+directory and your saved settings (`~/.config/platypus`).
+
+Prefer one command for a full server? The bootstrap installs the same package
+via pipx, runs the doctor, then applies the Ansible layer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/aebayav/platypus-server/main/bootstrap.sh | sudo bash
+```
+
+See [One-line server bootstrap](#one-line-server-bootstrap) for targets and
+options.
 
 ## Components
 
 | Component | Command | Purpose |
 |---|---|---|
-| TUI | `platypus-tui` | Interactive Linux server setup (Textual) |
-| Web dashboard | `platypus-dashboard` | Services, metrics and container management (Flask) |
-| Server roles | `platypus-server` | Switch the server between pre-built roles |
-| Compose generator | `zero-to-server` | Generate docker-compose.yml and Caddyfile |
+| Pre-flight checks | `platypus doctor` | Verify the machine before installing anything |
+| TUI setup | `platypus setup` | Interactive Linux server setup (Textual) |
+| Web dashboard | `platypus dashboard` | Services, metrics and container management (Flask) |
+| Server roles | `platypus switch`, `platypus status` | Switch the server between pre-built roles |
+| Compose generator | `platypus generate` | Generate docker-compose.yml and Caddyfile |
 | Ansible layer | playbooks, inventory | Configuration management for dev/prod |
+
+The older commands — `platypus-tui`, `platypus-dashboard`,
+`platypus-server`, `zero-to-server` and `platypus-doctor` — remain installed
+as aliases with their previous argument surfaces.
+
+> **Breaking change in 0.2.0:** `platypus` used to run the pre-flight doctor
+> directly. It is now the unified dispatcher, so use `platypus doctor ...`
+> (the standalone `platypus-doctor` alias still works).
 
 ## Requirements
 
 - Python 3.10+
+- pipx (for the recommended install) or pip
 - Docker (optional: dashboard container controls, Molecule role tests)
 
 ## One-line server bootstrap
 
-On the server itself, run a single command — it installs the system packages,
-clones the repository to `/opt/platypus-server`, creates a virtual environment,
-installs Ansible and the required collections, and runs the playbook locally
-(`ansible_connection: local`):
+On the server itself, run a single command — it installs the system
+packages (including pipx), installs the published `platypus-server` package
+into shared paths (`/opt/platypus/pipx` with the `platypus` command in
+`/usr/local/bin`), runs the pre-flight checks, clones the repository to
+`/opt/platypus-server`, creates a virtual environment with Ansible, and
+runs the playbook locally (`ansible_connection: local`):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/aebayav/platypus-server/main/bootstrap.sh | sudo bash
 ```
 
 Supported distros: Debian/Ubuntu, Fedora/RHEL, Alpine, Arch and openSUSE.
+Note that the Ansible security layer currently applies to Debian-family
+systems only — see the [support matrix](#support-matrix).
 
 The installation steps adapt to the kind of server with `PLATYPUS_TARGET`:
 
@@ -52,21 +89,23 @@ curl -fsSL https://raw.githubusercontent.com/aebayav/platypus-server/main/bootst
 curl -fsSL https://raw.githubusercontent.com/aebayav/platypus-server/main/bootstrap.sh | sudo bash -s -- --check
 ```
 
-Re-running is safe: the script updates the existing checkout, reuses the
-virtual environment and re-applies the idempotent playbook.
+Re-running is safe: the script re-installs/upgrades the same package
+(`pipx install --force`), and once a role has been activated
+(`/opt/platypus/state.yml` exists) the doctor treats busy stack ports as
+warnings instead of failures.
 
-### Pre-flight checks (`platypus doctor`)
+## Pre-flight checks (`platypus doctor`)
 
 Before touching anything, run the pre-flight checks — they verify the OS,
 sudo rights, Python version, free disk and RAM, internet access, and that
 the ports the stack needs (80, 443, 5050, 8080) are free:
 
 ```bash
+# once the package is installed
+platypus doctor
+
 # standalone — no installation needed
 curl -fsSL https://raw.githubusercontent.com/aebayav/platypus-server/main/doctor.py | python3 -
-
-# or, once the repository is installed
-platypus doctor
 ```
 
 The bootstrap above runs the same checks automatically, so a missing sudo
@@ -79,35 +118,49 @@ halfway through. The default port list depends on the target — a VPS checks
 platypus doctor --ports 80,443,5050,8080,25565
 ```
 
+On re-runs with the stack already up, add `--allow-busy` so ports occupied
+by your own running services are warnings rather than failures (the
+bootstrap passes this automatically once a role is active).
+
 ## Installation
 
-### Windows (PowerShell)
-
-```powershell
-powershell -ExecutionPolicy Bypass -File setup.ps1
-```
-
-Then activate the environment:
-
-```powershell
-.\.venv\Scripts\Activate.ps1
-```
-
-### Linux / macOS / WSL
+Recommended (Linux/macOS, and Windows via pipx too):
 
 ```bash
-make setup
+pipx install platypus-server
+# or without pipx:
+pip install --user platypus-server
+```
+
+All runtime dependencies (Textual, PyYAML, Flask, psutil) are included.
+
+For development:
+
+```bash
+git clone https://github.com/aebayav/platypus-server.git
+cd platypus-server
+make setup                 # Linux/macOS/WSL: venv + dev dependencies
 source .venv/bin/activate
+# or on Windows:
+powershell -ExecutionPolicy Bypass -File setup.ps1
+.\.venv\Scripts\Activate.ps1
+
+pip install -e ".[dev]"    # package + pytest
+pytest -q
 ```
 
-### Install the package
+## Support matrix
 
-```bash
-pip install -e .
-```
+| Distro family | Toolkit (`platypus` commands) | Ansible layer |
+|---|---|---|
+| Debian/Ubuntu | Supported | Supported |
+| Fedora/RHEL | Installs and runs | Security role not yet applied (known limitation) |
+| Arch, openSUSE, Alpine | Installs and runs | Security role not yet applied (known limitation) |
 
-Optional extras: `.[dashboard]` (Flask, psutil) and `.[zero2server]` (PyYAML).
-Textual, the TUI dependency, is installed by default.
+The security role's SSH hardening, UFW and fail2ban tasks currently run on
+Debian-family systems only. Extending (or narrowing the claim to) the other
+distros is planned follow-up work — it is stated here rather than silently
+skipped.
 
 ## Profiles and settings
 
@@ -134,7 +187,7 @@ variables (`PLATYPUS_MODE`, `PLATYPUS_TARGET`) > config file > defaults
 (`full`, `home`)**. Examples:
 
 ```bash
-platypus-tui --mode simple --target vps
+platypus setup --mode simple --target vps
 PLATYPUS_TARGET=vps platypus doctor
 sudo env PLATYPUS_TARGET=vps bash bootstrap.sh
 ```
@@ -143,48 +196,45 @@ sudo env PLATYPUS_TARGET=vps bash bootstrap.sh
 
 ```
 platypus-server/
-├── tui/                     # Textual TUI (server setup)
-│   └── settings.py          # mode (simple/full) + target (home/vps) settings
-├── dashboard/               # Flask web dashboard
-├── recipe/                  # Server-role switch system
-├── zero2server/             # docker-compose + Caddyfile generator
-├── roles/
-│   ├── common/              # Ansible role: base server configuration
-│   │   └── molecule/        # Ansible role tests
-│   ├── platypus/            # Ansible role: application deployment
-│   ├── security/            # Ansible role: SSH hardening, UFW, target steps
-│   ├── minecraft-server/    # Recipe role: template.yml + questions.yml
-│   ├── storage-nextcloud/   # Recipe role
-│   ├── storage-samba/       # Recipe role
-│   ├── pihole/              # Recipe role
-│   ├── syncthing/           # Recipe role
-│   ├── jellyfin/            # Recipe role
-│   └── assetto-corsa/       # Recipe role
+├── platypus_cli/           # Unified `platypus` command (dispatcher)
+├── tui/                    # Textual TUI (server setup)
+│   └── settings.py         # mode (simple/full) + target (home/vps) settings
+├── dashboard/              # Flask web dashboard
+├── recipe/                 # Server-role switch system
+│   └── roles/              # The seven recipe role templates (shipped in the package)
+├── zero2server/            # docker-compose + Caddyfile generator
+├── roles/                  # Ansible roles only: common, security, platypus
+│   └── common/molecule/    # Ansible role tests
 ├── playbooks/
-│   └── site.yml             # Main playbook
+│   └── site.yml            # Main playbook
 ├── inventory/
-│   ├── dev/                 # Development environment
+│   ├── dev/                # Development environment
 │   │   ├── hosts.yml
 │   │   └── group_vars/
-│   └── prod/                # Production environment
+│   └── prod/               # Production environment
 │       ├── hosts.yml
 │       └── group_vars/
-├── scripts/                 # Backup and service install scripts
-├── tests/                   # pytest suite
-├── doctor.py                # Pre-flight checks (platypus doctor)
-├── bootstrap.sh             # One-line server installer
-├── ansible.cfg              # Ansible configuration
+├── scripts/                # Backup and service install scripts
+├── tests/                  # pytest suite
+├── doctor.py               # Pre-flight checks (platypus doctor)
+├── bootstrap.sh            # One-line server installer (pipx + Ansible)
+├── ansible.cfg             # Ansible configuration
 ├── requirements.txt         # Ansible/testing Python dependencies
-├── requirements.yml         # Ansible collections
-├── Makefile                 # Helper commands
-├── setup.ps1                # Windows setup script
+├── requirements.yml        # Ansible collections
+├── Makefile                # Helper commands
+├── setup.ps1                # Windows dev setup script
 ├── .ansible-lint.yml
 └── .yamllint.yml
 ```
 
+The recipe role templates (`template.yml` + `questions.yml` per role) live in
+`recipe/roles/` and ship inside the Python package, so a pipx/pip install
+includes them; the recipe system resolves them there first, with the
+repository root's `roles/` as a fallback for editable checkouts.
+
 ## Ansible
 
-The `ansible.cfg`, `playbooks/`, `inventory/` and Ansible role directories
+The `ansible.cfg`, `playbooks/`, `inventory/` and the `roles/` directory
 provide a ready-to-use configuration management environment. Ansible runs
 directly on the server itself with `ansible_connection: local` — no SSH
 needed. The one-line bootstrap above is the quickest way to set a server up;
@@ -258,9 +308,9 @@ Add the encrypted value to the relevant `group_vars` file and run with:
 ansible-playbook playbooks/site.yml -i inventory/dev --ask-vault-pass
 ```
 
-## TUI (Text User Interface)
+## TUI (`platypus setup`)
 
-A Textual-based TUI is included for configuring a Linux server interactively. It covers:
+A Textual-based TUI for configuring a Linux server interactively. It covers:
 
 - **Docker + Docker Compose** — installation via the official convenience script
 - **Caddy Reverse Proxy** — installation from the official apt repository
@@ -278,11 +328,10 @@ WireGuard, or skip the VPN stage entirely. On a VPS there is no VPN stage
 ### Install and run
 
 ```bash
-# inside the project virtual environment
-pip install -e .
-platypus-tui
+# after pipx install platypus-server
+platypus setup
 # or, with explicit settings (flags > env vars > saved config)
-platypus-tui --mode simple --target vps
+platypus setup --mode simple --target vps
 ```
 
 Or without installing:
@@ -291,16 +340,13 @@ Or without installing:
 python -m tui
 ```
 
-Run with sudo for the best experience (otherwise privileged steps use `sudo -n`):
-
-```bash
-sudo -E .venv/bin/platypus-tui
-```
+Run it as your normal user — the TUI escalates privileged steps itself via
+`sudo -n` (passwordless sudo is required; `platypus doctor` checks for it).
 
 > The TUI performs **real system changes**. Run it directly on the Linux server
 > you want to configure — it is not intended for Windows hosts.
 
-## Web Dashboard
+## Web Dashboard (`platypus dashboard`)
 
 A web dashboard (Flask + psutil) for the local server, behind a simple login
 (default `admin` / `platypus`; override with the `DASHBOARD_USER` and
@@ -331,14 +377,12 @@ SERVICES = [
 ### Run
 
 ```bash
-pip install -e ".[dashboard]"
-python -m dashboard
-# or
-platypus-dashboard
+platypus dashboard
+# or with explicit binding (defaults come from DASHBOARD_HOST / DASHBOARD_PORT)
+platypus dashboard --host 0.0.0.0 --port 5050
 ```
 
-Then open http://localhost:5050. Override the host/port with `DASHBOARD_HOST`
-and `DASHBOARD_PORT` environment variables.
+Then open http://localhost:5050.
 
 ### Run as a systemd service (auto-start on boot)
 
@@ -353,10 +397,10 @@ automatically on boot and restarts it if it crashes:
 systemctl status platypus-dashboard
 ```
 
-## Server Roles (recipe system)
+## Server Roles (`platypus switch`)
 
-`platypus-server` switches the whole server between pre-built roles. Each role
-is defined by two files under `roles/<name>/`:
+The recipe system switches the whole server between pre-built roles. Each
+role is defined by two files under `recipe/roles/<name>/`:
 
 - `template.yml` — docker-compose template, hooks and an optional Caddy route
 - `questions.yml` — questions asked during first-time setup
@@ -377,10 +421,10 @@ is defined by two files under `roles/<name>/`:
 
 ```bash
 # Switch to a role (prompts for answers on first run)
-platypus-server switch minecraft-server
+platypus switch minecraft-server
 
 # Show active role, dormant roles and transition history
-platypus-server status
+platypus status
 ```
 
 During a switch, the current role is stopped (including its `pre_remove`
@@ -394,20 +438,15 @@ Runtime data lives under `/opt/platypus/roles/<role>/` (`answers.yml`,
 `docker-compose.yml`, bind-mounted `./data`). The role system targets Linux
 hosts.
 
-## zero-to-server CLI
+## Compose generator (`platypus generate`)
 
 An interactive CLI that generates a personalized `docker-compose.yml` plus a
 `Caddyfile` by asking which services you want, your domain, and whether to
 enable HTTPS. Available services in the catalog: Portainer, Uptime Kuma,
 Caddy, Watchtower, PostgreSQL and Redis.
 
-### Run
-
 ```bash
-pip install -e ".[zero2server]"
-zero-to-server
-# or
-python -m zero2server
+platypus generate
 ```
 
 Answer the prompts — it writes `docker-compose.yml` and, when Caddy is
@@ -422,7 +461,7 @@ Useful flags: `--run` starts the stack right away with `docker compose up -d`,
 
 | Script | Purpose |
 |---|---|
-| `bootstrap.sh` | One-line installer: system packages + repo + venv + Ansible + playbook |
+| `bootstrap.sh` | One-line installer: system packages + pipx package + doctor + Ansible playbook |
 | `scripts/backup.sh` | Archives `BACKUP_DIRS` to `BACKUP_DEST`, keeps `BACKUP_RETENTION` days of backups, optional S3 upload (`S3_BUCKET`) |
 | `scripts/install-backup-cron.sh` | Installs the `/etc/cron.d/platypus-backup` cron job |
 | `scripts/install-dashboard-service.sh` | Registers `platypus-dashboard.service` (starts on boot) |
@@ -435,23 +474,25 @@ sudo ./scripts/backup.sh
 
 ## Testing & CI
 
-A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push and
-pull request:
+A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push to
+main and every pull request:
 
-- `ansible-playbook --syntax-check`
-- `ansible-lint` and `yamllint`
-- Headless TUI smoke tests (`pytest`)
+- `lint` — `ansible-playbook --syntax-check`, `ansible-lint`, `yamllint`,
+  and a `bash -n` syntax check of the shell scripts
+- `test` — the pytest suite on Python 3.10, 3.11, 3.12 and 3.13
+- `package` — builds the wheel, installs it into a clean venv, imports every
+  tool and verifies the seven role templates ship inside the package
 
 To run the same checks locally:
 
 ```bash
-pip install -r requirements.txt
 pip install -e ".[dev]"
+pip install -r requirements.txt
+pytest -q
 ansible-galaxy collection install -r requirements.yml -p collections
 ansible-playbook --syntax-check playbooks/site.yml -i inventory/dev
 ansible-lint
 yamllint .
-pytest -q
 ```
 
 Molecule role tests require Docker and are run on demand (e.g. on a Linux VM):
@@ -461,9 +502,22 @@ cd roles/common
 molecule test
 ```
 
+## Releases (maintainers)
+
+Pushing a tag (`v*`) triggers `.github/workflows/release.yml`: it builds the
+sdist and wheel and publishes them to PyPI via
+[trusted publishing](https://docs.pypi.org/trusted-publishers/). Until the
+trusted publisher is configured for this repository, build and upload
+manually:
+
+```bash
+python -m build
+twine upload dist/*
+```
+
 ## Notes
 
 - Ansible runs on the server itself via `ansible_connection: local` — there is no SSH or remote inventory to configure.
 - Pick environment variables with `-i inventory/dev` (development) or `-i inventory/prod` (production).
 - Collections are installed into `./collections` and are not committed to git (see `.gitignore`).
-- The `roles/` directory holds both Ansible roles (`common`, `security`, `platypus`) and recipe role templates (the ones with `template.yml` and `questions.yml`).
+- `roles/` holds the three Ansible roles (`common`, `security`, `platypus`); the seven recipe role templates ship inside the Python package at `recipe/roles/`.
