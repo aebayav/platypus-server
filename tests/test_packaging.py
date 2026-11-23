@@ -15,7 +15,7 @@ with open("pyproject.toml", "rb") as fh:
 
 def test_distribution_name_and_version():
     assert PYPROJECT["project"]["name"] == "platypus-server"
-    assert PYPROJECT["project"]["version"] == "0.2.0"
+    assert PYPROJECT["project"]["version"] == "0.2.1"
 
 
 def test_core_dependencies_are_honest():

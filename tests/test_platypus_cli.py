@@ -48,7 +48,7 @@ def test_unknown_command_returns_two(capsys):
 
 def test_version_flag(capsys):
     assert cli.main(["--version"]) == 0
-    assert re.match(r"platypus (0\.2\.0|unknown)\b", capsys.readouterr().out)
+    assert re.match(r"platypus (0\.2\.1|unknown)\b", capsys.readouterr().out)
 
 
 def test_help_lists_every_subcommand(capsys):
