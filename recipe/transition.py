@@ -293,8 +293,8 @@ def _execute(
     data_dir.mkdir(parents=True, exist_ok=True)
     log(f"  data dir  {data_dir}  ✓")
 
-    # Save answers + render compose
-    save_answers(new_role, answers)
+    # Render compose from the in-memory answers.  answers.yml is only
+    # persisted in Phase 4, so a failed switch never freezes a bad input.
     compose_file = write_compose(new_role, answers)
     log(f"  compose   {compose_file}  ✓")
 
@@ -324,6 +324,7 @@ def _execute(
     # ==================================================================
     # PHASE 4 — Persist state
     # ==================================================================
+    save_answers(new_role, answers)   # only now: the switch succeeded
     state.history.append(
         HistoryEntry(role=new_role, activated_at=now, deactivated_at=None)
     )

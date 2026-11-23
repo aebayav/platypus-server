@@ -5,6 +5,7 @@ Also handles reading/writing answers.yml to the runtime role directory.
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -68,7 +69,7 @@ def load_answers(role_name: str) -> dict[str, Any] | None:
 
 
 def save_answers(role_name: str, answers: dict[str, Any]) -> Path:
-    """Persist *answers* to answers.yml atomically."""
+    """Persist *answers* to answers.yml atomically (tmp + fsync + replace)."""
     role_dir = PLATYPUS_ROLES_DIR / role_name
     role_dir.mkdir(parents=True, exist_ok=True)
 
@@ -81,6 +82,8 @@ def save_answers(role_name: str, answers: dict[str, Any]) -> Path:
     tmp = answers_file.with_suffix(".tmp")
     with tmp.open("w", encoding="utf-8") as fh:
         yaml.safe_dump(data, fh, allow_unicode=True, sort_keys=False)
+        fh.flush()
+        os.fsync(fh.fileno())
     tmp.replace(answers_file)
     return answers_file
 

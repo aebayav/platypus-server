@@ -110,3 +110,18 @@ def test_compose_down_strict_raises(tmp_path, monkeypatch):
     with pytest.raises(TransitionError):
         transition._compose_down("minecraft-server", logs.append, strict=True)
     transition._compose_down("minecraft-server", logs.append, strict=False)  # no raise
+
+
+def test_answers_saved_only_after_success(tmp_path, monkeypatch):
+    monkeypatch.setattr(lock, "LOCK_PATH", tmp_path / "transition.lock")
+    monkeypatch.setattr(transition.state_mod, "load", _blank_state)
+    saved = []
+    monkeypatch.setattr(transition, "save_answers",
+                        lambda role, answers: saved.append(role) or tmp_path / "answers.yml")
+    monkeypatch.setattr(transition, "_compose_up",
+                        lambda role, log: (_ for _ in ()).throw(transition.TransitionError("up failed")))
+
+    with pytest.raises(transition.TransitionError):
+        transition.switch("minecraft-server", answers={"a": 1}, log=lambda m: None)
+
+    assert saved == []  # typo'd answers from a failed switch are NOT persisted

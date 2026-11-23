@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import os
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import yaml
 
 from .model import PLATYPUS_DIR, STATE_FILE, HistoryEntry, State
+
+# One-generation backup used when state.yml is found corrupt.
+STATE_BACKUP: Path = PLATYPUS_DIR / "state.yml.bak"
 
 
 # ---------------------------------------------------------------------------
@@ -26,9 +32,41 @@ def _parse_dt(value: Any) -> datetime | None:
 # Public API
 # ---------------------------------------------------------------------------
 
+def atomic_write(path: Path, data: str) -> None:
+    """Durably write *data* to *path*.
+
+    Keeps the previous generation as a one-file ``.bak`` backup, writes
+    through a tmp file, fsyncs it, then atomically replaces the target —
+    a crash can never leave a zero-length or half-written primary file.
+    """
+    if path.exists():
+        try:
+            path.replace(path.with_suffix(path.suffix + ".bak"))
+        except OSError:
+            pass  # best-effort: the fsync'd primary write matters more
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8", newline="") as fh:
+        fh.write(data)
+        fh.flush()
+        os.fsync(fh.fileno())
+    tmp.replace(path)
+
+
 def load() -> State:
     """Load state from STATE_FILE. Returns a blank State if the file is absent."""
-    if not STATE_FILE.exists():
+    try:
+        return _load_from(STATE_FILE)
+    except (yaml.YAMLError, KeyError, ValueError):
+        print(
+            f"WARNING: {STATE_FILE} is corrupt — trying the backup "
+            f"{STATE_BACKUP}.",
+            file=sys.stderr,
+        )
+        return _load_from(STATE_BACKUP)
+
+
+def _load_from(path: Path) -> State:
+    if not path.exists():
         return State(
             schema_version="1",
             active=None,
@@ -37,7 +75,7 @@ def load() -> State:
             history=[],
         )
 
-    with STATE_FILE.open(encoding="utf-8") as fh:
+    with path.open(encoding="utf-8") as fh:
         raw: dict = yaml.safe_load(fh) or {}
 
     history = [
@@ -81,7 +119,7 @@ def save(state: State) -> None:
         ],
     }
 
-    tmp = STATE_FILE.with_suffix(".tmp")
-    with tmp.open("w", encoding="utf-8") as fh:
-        yaml.safe_dump(data, fh, allow_unicode=True, sort_keys=False)
-    tmp.replace(STATE_FILE)
+    atomic_write(
+        STATE_FILE,
+        yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
+    )
