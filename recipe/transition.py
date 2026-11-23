@@ -32,7 +32,9 @@ Phase 4  Persist state
 
 from __future__ import annotations
 
+import contextlib
 import os
+import signal
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -56,6 +58,23 @@ Log = Callable[[str], None]
 
 class TransitionError(Exception):
     """Raised when a role switch cannot be completed."""
+
+
+class TransitionInterrupted(BaseException):
+    """A SIGTERM arrived mid-transition — roll back and re-raise."""
+
+
+@contextlib.contextmanager
+def _interruptible():
+    """Turn SIGTERM into TransitionInterrupted for the duration."""
+    def handler(signum, frame):
+        raise TransitionInterrupted("SIGTERM received during transition")
+
+    previous = signal.signal(signal.SIGTERM, handler)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGTERM, previous)
 
 
 # ---------------------------------------------------------------------------
@@ -91,12 +110,16 @@ def _run_hooks(
             log(f"  ! hook exited {result.returncode}: {result.stderr.strip()}")
 
 
-def _compose_down(role_name: str, log: Log) -> None:
+def _compose_down(role_name: str, log: Log, strict: bool = False) -> None:
     """
     Stop and remove containers for *role_name*.
 
     ``--volumes`` flag is intentionally omitted so Docker named volumes
     are preserved.  Bind-mounted ``./data`` dirs are unaffected regardless.
+
+    With ``strict=True`` a failing down raises (used in Phase 1 so a
+    stuck old stack aborts the switch); the default is best-effort
+    (used by rollback).
     """
     compose_file = PLATYPUS_ROLES_DIR / role_name / "docker-compose.yml"
     if not compose_file.exists():
@@ -111,6 +134,12 @@ def _compose_down(role_name: str, log: Log) -> None:
     for line in (result.stdout + result.stderr).strip().splitlines():
         log(f"  {line}")
     if result.returncode != 0:
+        if strict:
+            raise TransitionError(
+                f"docker compose down failed for {role_name!r} "
+                f"(exit {result.returncode}) — aborting before the new role "
+                "is prepared."
+            )
         log(f"  ! compose down exited {result.returncode} — continuing anyway.")
 
 
@@ -195,12 +224,13 @@ def switch(
     log(f"Lock acquired (PID {lock_info['pid']})")
 
     try:
-        _execute(state, new_role_name, new_template, answers, log)
-    except Exception as exc:
-        log(f"\n[ERROR] {exc}")
+        with _interruptible():
+            _execute(state, new_role_name, new_template, answers, log)
+    except BaseException as exc:
+        log(f"\n[ERROR] {type(exc).__name__}: {exc}")
         log("Rolling back to previous role…")
-        _rollback(state, log)
-        raise TransitionError(str(exc)) from exc
+        _rollback(state, new_role_name, log)
+        raise (TransitionError(str(exc)) if isinstance(exc, Exception) else exc) from exc
     finally:
         lock_mod.release()
 
@@ -238,7 +268,7 @@ def _execute(
             log("  pre_remove hooks:")
             _run_hooks(pre_remove, log, answers=cur_answers)
 
-        _compose_down(cur, log)
+        _compose_down(cur, log, strict=True)
 
         post_remove = cur_template.get("hooks", {}).get("post_remove", [])
         if post_remove:
@@ -311,22 +341,38 @@ def _execute(
     log(f"{'═' * 52}")
 
 
-def _rollback(state: State, log: Log) -> None:
-    """Best-effort: restart the previous role's compose stack."""
+def _rollback(state: State, new_role: str, log: Log) -> None:
+    """Undo a failed or interrupted switch as far as it got.
+
+    Order: remove the partially started new stack, restore the old
+    role's Caddy route, run the old role's ``rollback`` hooks (undoing
+    damage its ``pre_remove`` did, e.g. Nextcloud's maintenance mode),
+    and restart the old stack.  Every step is best-effort: a failure
+    is logged and the next step still runs — rollback never raises.
+    """
+    _compose_down(new_role, log)
+
     if not state.active:
         log("  No previous role to restore.")
         return
-    compose_file = PLATYPUS_ROLES_DIR / state.active / "docker-compose.yml"
-    if not compose_file.exists():
-        log(f"  Cannot rollback — {compose_file} not found.")
-        return
-    log(f"  Restarting {state.active!r}…")
-    result = subprocess.run(
-        ["docker", "compose", "-f", str(compose_file), "up", "-d"],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode == 0:
-        log(f"  ✓ {state.active!r} restored.")
-    else:
-        log(f"  ! Rollback failed: {result.stderr.strip()}")
+    old = state.active
+
+    try:
+        caddy_mod.update(old, load_answers(old) or {}, log)
+    except Exception as exc:
+        log(f"  ! Caddy route restore failed: {exc}")
+
+    try:
+        old_template = _load_template(old)
+        rollback_cmds = old_template.get("hooks", {}).get("rollback", [])
+    except Exception as exc:
+        log(f"  ! Could not load rollback hooks for {old!r}: {exc}")
+        rollback_cmds = []
+    log("  rollback hooks:")
+    _run_hooks(rollback_cmds, log, answers=load_answers(old))
+
+    try:
+        _compose_up(old, log)
+        log(f"  ✓ {old!r} restored.")
+    except Exception as exc:
+        log(f"  ! Rollback failed to restart {old!r}: {exc}")

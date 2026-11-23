@@ -13,6 +13,8 @@ hooks:
   pre_remove:
     - "docker exec platypus-nextcloud php occ maintenance:mode --on || true"
   post_remove: []
+  rollback:
+    - "docker exec platypus-nextcloud php occ maintenance:mode --off || true"
   pre_apply: []
   post_apply:
     - "echo 'Nextcloud başlatılıyor — ilk kurulum ~60 saniye sürebilir.'"
