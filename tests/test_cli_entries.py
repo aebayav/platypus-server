@@ -66,3 +66,15 @@ def test_recipe_switch_accepts_force_unlock(monkeypatch):
     monkeypatch.setattr(recipe_cli, "load_answers", lambda role: {"a": 1})
     assert recipe_cli.main(["switch", "minecraft-server", "--force-unlock"]) == 0
     assert recorded == {"role": "minecraft-server", "force_unlock": True}
+
+
+def test_recipe_switch_ctrl_c_prints_clean_message(monkeypatch, capsys):
+    def fake_switch(role, answers=None, log=print, force_unlock=False):
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(recipe_cli, "switch", fake_switch)
+    monkeypatch.setattr(recipe_cli, "load_answers", lambda role: {"a": 1})
+    assert recipe_cli.main(["switch", "syncthing"]) == 130
+    err = capsys.readouterr().err
+    assert "Interrupted" in err
+    assert "Traceback" not in err

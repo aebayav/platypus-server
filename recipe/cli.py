@@ -19,7 +19,7 @@ from . import state as state_mod
 from . import lock as lock_mod
 from .model import PLATYPUS_ROLES_DIR, role_dir
 from .renderer import load_answers, save_answers
-from .transition import TransitionError, switch
+from .transition import TransitionError, TransitionInterrupted, switch
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +129,15 @@ def _cmd_switch(args: argparse.Namespace) -> int:
     try:
         switch(role, answers=answers, log=print, force_unlock=args.force_unlock)
         return 0
+    except (KeyboardInterrupt, TransitionInterrupted):
+        # The engine already rolled back (or nothing had started yet) —
+        # show one clean line instead of a raw traceback.
+        print(
+            "\nInterrupted — the server is in its pre-switch state "
+            "(rollback details above, if any).",
+            file=sys.stderr,
+        )
+        return 130
     except TransitionError as exc:
         print(f"\nError: {exc}", file=sys.stderr)
         return 1
