@@ -61,5 +61,8 @@ def test_recipe_switch_accepts_force_unlock(monkeypatch):
         return 0
 
     monkeypatch.setattr(recipe_cli, "switch", fake_switch)
+    # Saved answers exist: _cmd_switch must take the reuse path and never
+    # fall into the interactive question form (stdin is captured in CI).
+    monkeypatch.setattr(recipe_cli, "load_answers", lambda role: {"a": 1})
     assert recipe_cli.main(["switch", "minecraft-server", "--force-unlock"]) == 0
     assert recorded == {"role": "minecraft-server", "force_unlock": True}
