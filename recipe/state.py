@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from datetime import datetime, timezone
 from typing import Any
 
@@ -86,34 +85,3 @@ def save(state: State) -> None:
     with tmp.open("w", encoding="utf-8") as fh:
         yaml.safe_dump(data, fh, allow_unicode=True, sort_keys=False)
     tmp.replace(STATE_FILE)
-
-
-def set_lock(state: State, target_role: str) -> None:
-    """Acquire the transition lock and write it to disk immediately."""
-    state.transition_lock = {
-        "role": target_role,
-        "pid": os.getpid(),
-        "started_at": datetime.now(timezone.utc).isoformat(),
-    }
-    save(state)
-
-
-def release_lock(state: State) -> None:
-    """Release the transition lock and write to disk."""
-    state.transition_lock = None
-    save(state)
-
-
-def is_lock_stale(lock: dict) -> bool:
-    """Return True if the PID recorded in *lock* is no longer alive."""
-    pid = lock.get("pid")
-    if not isinstance(pid, int):
-        return True
-    try:
-        os.kill(pid, 0)   # Signal 0 = existence check
-        return False       # Process is alive
-    except ProcessLookupError:
-        return True        # Process is gone
-    except PermissionError:
-        return False       # Process exists, we just can't signal it
-

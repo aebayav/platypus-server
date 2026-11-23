@@ -41,6 +41,7 @@ from typing import Any, Callable
 import yaml
 
 from . import caddy as caddy_mod
+from . import lock as lock_mod
 from . import state as state_mod
 from .model import (
     PLATYPUS_ROLES_DIR,
@@ -141,6 +142,7 @@ def switch(
     new_role_name: str,
     answers: dict[str, Any] | None = None,
     log: Log = print,
+    force_unlock: bool = False,
 ) -> None:
     """
     Switch the server to *new_role_name*.
@@ -148,31 +150,17 @@ def switch(
     Parameters
     ----------
     new_role_name:
-        Target role (must have a template.yml in the repo's ``roles/`` dir).
+        Target role (must have a template.yml in the packaged roles dir).
     answers:
         User-provided answers dict (from TUI form).  If ``None``, the
         existing ``answers.yml`` for the role is loaded.  If neither
         exists, ``TransitionError`` is raised.
     log:
         Callable used for progress output (default: print).
+    force_unlock:
+        Steal a live transition lock held by another process.
     """
     state = state_mod.load()
-
-    # ------------------------------------------------------------------
-    # Stale-lock cleanup
-    # ------------------------------------------------------------------
-    if state.transition_lock:
-        lock = state.transition_lock
-        if state_mod.is_lock_stale(lock):
-            log(f"Stale lock (PID {lock.get('pid')}) — clearing.")
-            state_mod.release_lock(state)
-            state = state_mod.load()
-        else:
-            raise TransitionError(
-                f"Transition to {lock.get('role')!r} already in progress "
-                f"(PID {lock.get('pid')}). "
-                "Remove transition_lock from /opt/platypus/state.yml to reset."
-            )
 
     if new_role_name == state.active:
         log(f"Role {new_role_name!r} is already active — nothing to do.")
@@ -196,10 +184,15 @@ def switch(
         log(f"  Using newly collected answers for {new_role_name!r}.")
 
     # ------------------------------------------------------------------
-    # Acquire transition lock
+    # Acquire the atomic transition lock (file-based, O_EXCL)
     # ------------------------------------------------------------------
-    state_mod.set_lock(state, new_role_name)
-    log(f"Lock acquired (PID {os.getpid()})")
+    try:
+        lock_info = lock_mod.acquire(new_role_name, force=force_unlock)
+    except lock_mod.LockError as exc:
+        raise TransitionError(str(exc)) from exc
+    if lock_info.get("stole_from") is not None:
+        log(f"  Recovered stale lock (was PID {lock_info['stole_from']}).")
+    log(f"Lock acquired (PID {lock_info['pid']})")
 
     try:
         _execute(state, new_role_name, new_template, answers, log)
@@ -207,8 +200,9 @@ def switch(
         log(f"\n[ERROR] {exc}")
         log("Rolling back to previous role…")
         _rollback(state, log)
-        state_mod.release_lock(state)
         raise TransitionError(str(exc)) from exc
+    finally:
+        lock_mod.release()
 
 
 # ---------------------------------------------------------------------------
@@ -305,7 +299,7 @@ def _execute(
     )
     state.active = new_role
     state.activated_at = now
-    state_mod.release_lock(state)   # writes state.yml + clears lock
+    state_mod.save(state)
 
     log(f"\n{'═' * 52}")
     log(f"  ✓ Active role: {new_role!r}")

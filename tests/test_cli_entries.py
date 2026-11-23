@@ -50,3 +50,16 @@ def test_zero2server_main_help_exits_zero():
     with pytest.raises(SystemExit) as exc:
         z2s_cli.main(["--help"])
     assert exc.value.code == 0
+
+
+def test_recipe_switch_accepts_force_unlock(monkeypatch):
+    recorded = {}
+
+    def fake_switch(role, answers=None, log=print, force_unlock=False):
+        recorded["role"] = role
+        recorded["force_unlock"] = force_unlock
+        return 0
+
+    monkeypatch.setattr(recipe_cli, "switch", fake_switch)
+    assert recipe_cli.main(["switch", "minecraft-server", "--force-unlock"]) == 0
+    assert recorded == {"role": "minecraft-server", "force_unlock": True}

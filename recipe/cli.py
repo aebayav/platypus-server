@@ -16,6 +16,7 @@ from typing import Any
 import yaml
 
 from . import state as state_mod
+from . import lock as lock_mod
 from .model import PLATYPUS_ROLES_DIR, role_dir
 from .renderer import load_answers, save_answers
 from .transition import TransitionError, switch
@@ -126,7 +127,7 @@ def _cmd_switch(args: argparse.Namespace) -> int:
 
     print(f"\nplatypus-server switch → {role!r}\n")
     try:
-        switch(role, answers=answers, log=print)
+        switch(role, answers=answers, log=print, force_unlock=args.force_unlock)
         return 0
     except TransitionError as exc:
         print(f"\nError: {exc}", file=sys.stderr)
@@ -147,12 +148,13 @@ def _cmd_status(args: argparse.Namespace) -> int:
     else:
         print("No active role.")
 
-    if state.transition_lock:
-        lock = state.transition_lock
+    file_lock = lock_mod.read()
+    if file_lock:
         print(
-            f"\n⚠  Transition lock  role={lock.get('role')!r}  "
-            f"PID={lock.get('pid')}  started={lock.get('started_at')}"
+            f"\n⚠  Transition lock  target={file_lock.get('target')!r}  "
+            f"PID={file_lock.get('pid')}  started={file_lock.get('started_at')}"
         )
+        print("   If no switch is running, recover with:  platypus-server switch <role> --force-unlock")
 
     # Dormant roles — scan /opt/platypus/roles/
     dormant = []
@@ -203,6 +205,11 @@ def main(argv: list[str] | None = None) -> int:
 
     p_switch = sub.add_parser("switch", help="Switch to a different server role")
     p_switch.add_argument("role", help="Target role name, e.g. minecraft-server")
+    p_switch.add_argument(
+        "--force-unlock",
+        action="store_true",
+        help="steal a live transition lock held by another process",
+    )
     p_switch.set_defaults(func=_cmd_switch)
 
     p_status = sub.add_parser("status", help="Show active role, dormant roles, history")
