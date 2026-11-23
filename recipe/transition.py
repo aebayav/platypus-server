@@ -190,6 +190,7 @@ def switch(
         Steal a live transition lock held by another process.
     """
     state = state_mod.load()
+    prev_active = state.active
 
     if new_role_name == state.active:
         log(f"Role {new_role_name!r} is already active — nothing to do.")
@@ -229,7 +230,10 @@ def switch(
     except BaseException as exc:
         log(f"\n[ERROR] {type(exc).__name__}: {exc}")
         log("Rolling back to previous role…")
-        _rollback(state, new_role_name, log)
+        # prev_active, not state.active: _execute may have mutated state
+        # before failing, and the wrong target would "restore" the NEW role.
+        with _interruptible():
+            _rollback(state, prev_active, new_role_name, log)
         raise (TransitionError(str(exc)) if isinstance(exc, Exception) else exc) from exc
     finally:
         lock_mod.release()
@@ -342,38 +346,53 @@ def _execute(
     log(f"{'═' * 52}")
 
 
-def _rollback(state: State, new_role: str, log: Log) -> None:
+def _rollback(state: State, prev_active: str | None, new_role: str, log: Log) -> None:
     """Undo a failed or interrupted switch as far as it got.
+
+    *prev_active* is the role that was active before the switch (captured
+    by the caller — never the possibly-mutated ``state.active``).
 
     Order: remove the partially started new stack, restore the old
     role's Caddy route, run the old role's ``rollback`` hooks (undoing
     damage its ``pre_remove`` did, e.g. Nextcloud's maintenance mode),
-    and restart the old stack.  Every step is best-effort: a failure
-    is logged and the next step still runs — rollback never raises.
+    and restart the old stack.  Every step is guarded: a second Ctrl-C,
+    a SIGTERM, or a broken dependency inside rollback is logged and the
+    NEXT step still runs — rollback itself never raises.
     """
-    _compose_down(new_role, log)
+    try:
+        _compose_down(new_role, log)
+    except BaseException as exc:
+        log(f"  ! rollback: compose down of {new_role!r} failed: {exc}")
 
-    if not state.active:
+    if not prev_active:
         log("  No previous role to restore.")
         return
-    old = state.active
+    old = prev_active
 
     try:
-        caddy_mod.update(old, load_answers(old) or {}, log)
+        old_answers = load_answers(old)
     except Exception as exc:
+        log(f"  ! rollback: could not load answers for {old!r}: {exc}")
+        old_answers = None
+
+    try:
+        caddy_mod.update(old, old_answers or {}, log)
+    except BaseException as exc:
         log(f"  ! Caddy route restore failed: {exc}")
 
     try:
-        old_template = _load_template(old)
-        rollback_cmds = old_template.get("hooks", {}).get("rollback", [])
+        rollback_cmds = _load_template(old).get("hooks", {}).get("rollback", [])
     except Exception as exc:
         log(f"  ! Could not load rollback hooks for {old!r}: {exc}")
         rollback_cmds = []
     log("  rollback hooks:")
-    _run_hooks(rollback_cmds, log, answers=load_answers(old))
+    try:
+        _run_hooks(rollback_cmds, log, answers=old_answers)
+    except BaseException as exc:
+        log(f"  ! rollback hooks failed: {exc}")
 
     try:
         _compose_up(old, log)
         log(f"  ✓ {old!r} restored.")
-    except Exception as exc:
+    except BaseException as exc:
         log(f"  ! Rollback failed to restart {old!r}: {exc}")

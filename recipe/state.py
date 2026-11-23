@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,28 +36,50 @@ def _parse_dt(value: Any) -> datetime | None:
 def atomic_write(path: Path, data: str) -> None:
     """Durably write *data* to *path*.
 
-    Keeps the previous generation as a one-file ``.bak`` backup, writes
-    through a tmp file, fsyncs it, then atomically replaces the target —
-    a crash can never leave a zero-length or half-written primary file.
+    The tmp file is written and fsynced first, so the primary never
+    disappears before the new content exists on disk; the previous
+    generation is kept (copied, not moved) as a one-file ``.bak``
+    backup, and the final replace is atomic — a crash can never leave
+    a zero-length, half-written, or missing primary file.
     """
-    if path.exists():
-        try:
-            path.replace(path.with_suffix(path.suffix + ".bak"))
-        except OSError:
-            pass  # best-effort: the fsync'd primary write matters more
     tmp = path.with_suffix(path.suffix + ".tmp")
     with tmp.open("w", encoding="utf-8", newline="") as fh:
         fh.write(data)
         fh.flush()
         os.fsync(fh.fileno())
+    if path.exists():
+        try:
+            shutil.copyfile(path, path.with_suffix(path.suffix + ".bak"))
+        except OSError:
+            pass  # best-effort: the fsync'd primary write matters more
     tmp.replace(path)
 
 
 def load() -> State:
-    """Load state from STATE_FILE. Returns a blank State if the file is absent."""
+    """Load state from STATE_FILE. Returns a blank State if the file is absent.
+
+    A missing primary with an existing backup is restored from it rather
+    than silently reset to blank; a corrupt primary falls back to the
+    backup generation instead of crashing every command.
+    """
+    if not STATE_FILE.exists():
+        if STATE_BACKUP.exists():
+            print(
+                f"WARNING: {STATE_FILE} missing — restoring from "
+                f"{STATE_BACKUP}.",
+                file=sys.stderr,
+            )
+            st = _load_from(STATE_BACKUP)
+            try:
+                save(st)
+            except OSError:
+                pass  # read-only mounts: the next save will persist it
+            return st
+        return _load_from(STATE_FILE)
+
     try:
         return _load_from(STATE_FILE)
-    except (yaml.YAMLError, KeyError, ValueError):
+    except (yaml.YAMLError, KeyError, ValueError, AttributeError, TypeError):
         print(
             f"WARNING: {STATE_FILE} is corrupt — trying the backup "
             f"{STATE_BACKUP}.",
@@ -106,7 +129,9 @@ def save(state: State) -> None:
         "activated_at": (
             state.activated_at.isoformat() if state.activated_at else None
         ),
-        "transition_lock": state.transition_lock,
+        # transition_lock is intentionally NOT written: locking is owned
+        # by the transition.lock file since 0.2.1.  The State field stays
+        # so old files that still carry the key keep loading.
         "history": [
             {
                 "role": h.role,

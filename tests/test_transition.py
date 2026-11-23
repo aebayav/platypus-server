@@ -58,6 +58,7 @@ def test_rollback_composition(tmp_path, monkeypatch):
         schema_version="1", active="pihole", activated_at=None,
         transition_lock=None, history=[])
     order = []
+    monkeypatch.setattr(transition, "load_answers", lambda r: {"x": 1})
     monkeypatch.setattr(transition, "_compose_down",
                         lambda role, log, strict=False: order.append(("down", role)))
     monkeypatch.setattr(transition.caddy_mod, "update",
@@ -67,7 +68,7 @@ def test_rollback_composition(tmp_path, monkeypatch):
     monkeypatch.setattr(transition, "_run_hooks",
                         lambda cmds, log, answers=None: order.append(("hooks", list(cmds))))
 
-    transition._rollback(state, "minecraft-server", lambda m: None)
+    transition._rollback(state, "pihole", "minecraft-server", lambda m: None)
 
     assert order == [
         ("down", "minecraft-server"),   # partial new stack removed
@@ -77,13 +78,60 @@ def test_rollback_composition(tmp_path, monkeypatch):
     ]
 
 
+def test_rollback_step_failure_continues(tmp_path, monkeypatch):
+    state = transition.state_mod.State(
+        schema_version="1", active="pihole", activated_at=None,
+        transition_lock=None, history=[])
+    order = []
+    monkeypatch.setattr(transition, "load_answers", lambda r: {"x": 1})
+    monkeypatch.setattr(transition, "_compose_down",
+                        lambda role, log, strict=False: order.append(("down", role)))
+    monkeypatch.setattr(transition.caddy_mod, "update",
+                        lambda role, answers, log: (_ for _ in ()).throw(KeyboardInterrupt()))
+    monkeypatch.setattr(transition, "_run_hooks",
+                        lambda cmds, log, answers=None: order.append(("hooks", list(cmds))))
+    monkeypatch.setattr(transition, "_compose_up",
+                        lambda role, log: order.append(("up", role)))
+
+    transition._rollback(state, "pihole", "minecraft-server", lambda m: None)
+
+    # A second Ctrl-C during rollback must not abort the remaining steps.
+    assert order == [("down", "minecraft-server"), ("hooks", []), ("up", "pihole")]
+
+
+def test_rollback_targets_previous_role_when_save_fails(tmp_path, monkeypatch):
+    monkeypatch.setattr(lock, "LOCK_PATH", tmp_path / "transition.lock")
+    monkeypatch.setattr(transition, "PLATYPUS_ROLES_DIR", tmp_path / "roles")
+    monkeypatch.setattr(transition.state_mod, "load", lambda: transition.state_mod.State(
+        schema_version="1", active="jellyfin", activated_at=None,
+        transition_lock=None, history=[]))
+    calls = []
+    monkeypatch.setattr(transition, "_rollback",
+                        lambda s, prev, new, log: calls.append((prev, new)))
+    monkeypatch.setattr(transition, "write_compose", lambda role, answers: tmp_path / "c.yml")
+    monkeypatch.setattr(transition, "save_answers", lambda role, answers: tmp_path / "a.yml")
+    monkeypatch.setattr(transition, "_compose_up", lambda role, log: None)
+    monkeypatch.setattr(transition.caddy_mod, "update", lambda role, answers, log: None)
+
+    def explode(state):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(transition.state_mod, "save", explode)
+
+    with pytest.raises(TransitionError):
+        transition.switch("minecraft-server", answers={"a": 1}, log=lambda m: None)
+
+    # Rollback must restore the role active BEFORE the switch mutated state.
+    assert calls == [("jellyfin", "minecraft-server")]
+
+
 def test_keyboard_interrupt_rolls_back_and_releases(tmp_path, monkeypatch):
     monkeypatch.setattr(lock, "LOCK_PATH", tmp_path / "transition.lock")
     monkeypatch.setattr(transition.state_mod, "load", _blank_state)
     rolled = []
     monkeypatch.setattr(transition, "_execute",
                         lambda *a, **k: (_ for _ in ()).throw(KeyboardInterrupt()))
-    monkeypatch.setattr(transition, "_rollback", lambda s, r, log: rolled.append(r))
+    monkeypatch.setattr(transition, "_rollback", lambda s, prev, r, log: rolled.append(r))
 
     with pytest.raises(KeyboardInterrupt):
         transition.switch("minecraft-server", answers={"a": 1}, log=lambda m: None)
@@ -113,15 +161,21 @@ def test_compose_down_strict_raises(tmp_path, monkeypatch):
 
 
 def test_answers_saved_only_after_success(tmp_path, monkeypatch):
-    monkeypatch.setattr(lock, "LOCK_PATH", tmp_path / "transition.lock")
     monkeypatch.setattr(transition.state_mod, "load", _blank_state)
     saved = []
+    ups = []
     monkeypatch.setattr(transition, "save_answers",
                         lambda role, answers: saved.append(role) or tmp_path / "answers.yml")
+    monkeypatch.setattr(transition, "write_compose",
+                        lambda role, answers: tmp_path / "docker-compose.yml")
+    monkeypatch.setattr(transition, "_run_hooks",
+                        lambda cmds, log, answers=None: None)
     monkeypatch.setattr(transition, "_compose_up",
-                        lambda role, log: (_ for _ in ()).throw(transition.TransitionError("up failed")))
+                        lambda role, log: ups.append(role)
+                        or (_ for _ in ()).throw(transition.TransitionError("up failed")))
 
     with pytest.raises(transition.TransitionError):
         transition.switch("minecraft-server", answers={"a": 1}, log=lambda m: None)
 
+    assert ups == ["minecraft-server"]  # Phase 3 was actually reached
     assert saved == []  # typo'd answers from a failed switch are NOT persisted
