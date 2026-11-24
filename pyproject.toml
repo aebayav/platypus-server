@@ -49,7 +49,7 @@ packages = ["tui", "tui.tasks", "dashboard", "zero2server", "recipe", "platypus_
 py-modules = ["doctor"]
 
 [tool.setuptools.package-data]
-recipe = ["roles/*/template.yml", "roles/*/questions.yml"]
+recipe = ["modules/*/template.yml", "modules/*/questions.yml"]
 dashboard = ["static/*"]
 
 [tool.pytest.ini_options]

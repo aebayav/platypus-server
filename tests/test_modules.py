@@ -1,4 +1,4 @@
-"""Recipe role templates: discovery, packaged-first resolution, fallback."""
+"""Packaged module templates: discovery, packaged-first resolution, fallback."""
 
 import pytest
 
@@ -33,7 +33,7 @@ def test_role_dir_prefers_packaged_dir(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     (repo / "demo").mkdir(parents=True)
     (repo / "demo" / "template.yml").write_text("a: 2\n", encoding="utf-8")
-    monkeypatch.setattr(model, "PACKAGED_ROLES_DIR", packaged)
+    monkeypatch.setattr(model, "PACKAGED_MODULES_DIR", packaged)
     monkeypatch.setattr(model, "REPO_ROLES_DIR", repo)
     assert model.role_dir("demo") == packaged / "demo"
 
@@ -42,13 +42,13 @@ def test_role_dir_falls_back_to_repo_dir(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     (repo / "demo").mkdir(parents=True)
     (repo / "demo" / "template.yml").write_text("a: 1\n", encoding="utf-8")
-    monkeypatch.setattr(model, "PACKAGED_ROLES_DIR", tmp_path / "empty")
+    monkeypatch.setattr(model, "PACKAGED_MODULES_DIR", tmp_path / "empty")
     monkeypatch.setattr(model, "REPO_ROLES_DIR", repo)
     assert model.role_dir("demo") == repo / "demo"
 
 
 def test_role_dir_unknown_role_raises(tmp_path, monkeypatch):
-    monkeypatch.setattr(model, "PACKAGED_ROLES_DIR", tmp_path / "a")
+    monkeypatch.setattr(model, "PACKAGED_MODULES_DIR", tmp_path / "a")
     monkeypatch.setattr(model, "REPO_ROLES_DIR", tmp_path / "b")
     with pytest.raises(FileNotFoundError):
         model.role_dir("nope")
