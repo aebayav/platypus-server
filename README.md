@@ -544,4 +544,4 @@ twine upload dist/*
 - Ansible runs on the server itself via `ansible_connection: local` — there is no SSH or remote inventory to configure.
 - Pick environment variables with `-i inventory/dev` (development) or `-i inventory/prod` (production).
 - Collections are installed into `./collections` and are not committed to git (see `.gitignore`).
-- `roles/` holds the three Ansible roles (`common`, `security`, `platypus`); the seven recipe role templates ship inside the Python package at `recipe/roles/`.
+- `roles/` holds the three Ansible roles (`common`, `security`, `platypus`); the seven module templates ship inside the Python package at `recipe/modules/`.
