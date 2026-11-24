@@ -10,6 +10,13 @@
 # Data      : ./data mounted at /steamapps (server install + config)
 
 role: assetto-corsa
+weight: main
+ports:
+  - "{answers[tcp_port]}/tcp"
+  - "{answers[udp_port]}/udp"
+  - "{answers[http_port]}/tcp"
+  - "50041/tcp"
+  - "50042/tcp"
 version: "1.0"
 description: "Assetto Corsa — yarış simülasyonu adanmış sunucusu"
 

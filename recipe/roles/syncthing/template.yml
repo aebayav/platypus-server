@@ -5,6 +5,12 @@
 # Data: ./data mounted at /var/syncthing.
 
 role: syncthing
+weight: companion
+ports:
+  - "{answers[web_port]}/tcp"
+  - "22000/tcp"
+  - "22000/udp"
+  - "21027/udp"
 version: "1.0"
 description: "Syncthing — cihazlar arası sürekli dosya senkronizasyonu"
 
@@ -19,7 +25,7 @@ caddy:
   enabled: true
   route: |
     {answers[domain]} {{
-        reverse_proxy platypus-syncthing:8384
+        reverse_proxy localhost:{answers[web_port]}
     }}
 
 compose_template: |

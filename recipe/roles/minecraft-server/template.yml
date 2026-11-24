@@ -9,6 +9,9 @@
 # ./data is a bind mount. docker compose down never touches it.
 
 role: minecraft-server
+weight: main
+ports:
+  - "{answers[port]}/tcp"
 version: "1.0"
 description: "Minecraft Java Edition sunucusu (itzg/minecraft-server)"
 

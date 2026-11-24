@@ -6,6 +6,9 @@
 # Caddy: HTTPS desteği için etkinleştir.
 
 role: storage-nextcloud
+weight: main
+ports:
+  - "{answers[http_port]}/tcp"
 version: "1.0"
 description: "Nextcloud — kişisel bulut depolama ve ofis paketi"
 
@@ -24,7 +27,7 @@ caddy:
   enabled: true
   route: |
     {answers[domain]} {{
-        reverse_proxy platypus-nextcloud:80 {{
+        reverse_proxy localhost:{answers[http_port]} {{
             header_up Host {{host}}
             header_up X-Real-IP {{remote_host}}
             header_up X-Forwarded-For {{remote_host}}

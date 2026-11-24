@@ -4,6 +4,10 @@
 # Veri: ./data/ → container içinde /share olarak mount edilir.
 
 role: storage-samba
+weight: companion
+ports:
+  - "139/tcp"
+  - "445/tcp"
 version: "1.0"
 description: "Samba dosya sunucusu — ağ genelinde SMB/CIFS paylaşımı"
 

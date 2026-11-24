@@ -5,6 +5,9 @@
 #          {answers[media_path]} → /media (your media library).
 
 role: jellyfin
+weight: main
+ports:
+  - "{answers[web_port]}/tcp"
 version: "1.0"
 description: "Jellyfin — açık kaynak medya sunucusu (film, dizi, müzik)"
 
@@ -19,7 +22,7 @@ caddy:
   enabled: true
   route: |
     {answers[domain]} {{
-        reverse_proxy platypus-jellyfin:8096
+        reverse_proxy localhost:{answers[web_port]}
     }}
 
 compose_template: |

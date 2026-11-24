@@ -40,7 +40,11 @@ def _no_save(monkeypatch):
 
 def test_mount_is_additive(tmp_path, monkeypatch):
     monkeypatch.setattr(transition.state_mod, "load", lambda: _state(["pihole"]))
-    monkeypatch.setattr(transition, "load_answers", lambda name: {"a": 1})
+    monkeypatch.setattr(
+        transition, "load_answers",
+        lambda name: {"pihole": {"web_port": 8080},
+                      "syncthing": {"web_port": 8384}}[name],
+    )
     monkeypatch.setattr(transition, "write_compose",
                         lambda role, answers: tmp_path / "c.yml")
     monkeypatch.setattr(transition, "save_answers", lambda role, answers: None)
@@ -62,7 +66,7 @@ def test_mount_lock_error_becomes_transition_error(tmp_path, monkeypatch):
     monkeypatch.setattr(lock, "LOCK_PATH", tmp_path / "transition.lock")
     lock.acquire("other-role")
     monkeypatch.setattr(transition.state_mod, "load", lambda: _state([]))
-    monkeypatch.setattr(transition, "load_answers", lambda name: {"a": 1})
+    monkeypatch.setattr(transition, "load_answers", lambda name: {"port": 25565})
     with pytest.raises(TransitionError) as exc:
         transition.mount("minecraft-server", log=lambda m: None)
     assert "--force-unlock" in str(exc.value)
@@ -70,7 +74,7 @@ def test_mount_lock_error_becomes_transition_error(tmp_path, monkeypatch):
 
 def test_mount_releases_lock_on_success(tmp_path, monkeypatch):
     monkeypatch.setattr(transition.state_mod, "load", lambda: _state([]))
-    monkeypatch.setattr(transition, "load_answers", lambda name: {"a": 1})
+    monkeypatch.setattr(transition, "load_answers", lambda name: {"port": 25565})
     monkeypatch.setattr(transition, "write_compose",
                         lambda role, answers: tmp_path / "c.yml")
     monkeypatch.setattr(transition, "save_answers", lambda role, answers: None)
@@ -125,7 +129,11 @@ def test_mount_invalid_answers_refused(tmp_path, monkeypatch):
 
 def test_mount_failure_rolls_back_partial_only(tmp_path, monkeypatch):
     monkeypatch.setattr(transition.state_mod, "load", lambda: _state(["pihole"]))
-    monkeypatch.setattr(transition, "load_answers", lambda name: {"a": 1})
+    monkeypatch.setattr(
+        transition, "load_answers",
+        lambda name: {"pihole": {"web_port": 8080},
+                      "syncthing": {"web_port": 8384}}[name],
+    )
     monkeypatch.setattr(transition, "write_compose",
                         lambda role, answers: tmp_path / "c.yml")
     monkeypatch.setattr(transition, "save_answers", lambda role, answers: None)
@@ -155,7 +163,7 @@ def test_mount_failure_rolls_back_partial_only(tmp_path, monkeypatch):
 def test_keyboard_interrupt_rolls_back_and_releases(tmp_path, monkeypatch):
     monkeypatch.setattr(lock, "LOCK_PATH", tmp_path / "transition.lock")
     monkeypatch.setattr(transition.state_mod, "load", lambda: _state([]))
-    monkeypatch.setattr(transition, "load_answers", lambda name: {"a": 1})
+    monkeypatch.setattr(transition, "load_answers", lambda name: {"port": 25565})
     rolled = []
     monkeypatch.setattr(transition, "_rollback_partial",
                         lambda m, log: rolled.append(m))

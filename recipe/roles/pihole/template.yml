@@ -7,6 +7,11 @@
 # Data: ./etc-pihole (Pi-hole config) and ./etc-dnsmasq.d (dnsmasq config).
 
 role: pihole
+weight: companion
+ports:
+  - "53/tcp"
+  - "53/udp"
+  - "{answers[web_port]}/tcp"
 version: "1.0"
 description: "Pi-hole — ağ genelinde reklam ve izleyici engelleme (DNS sinkhole)"
 
@@ -21,7 +26,7 @@ caddy:
   enabled: true
   route: |
     {answers[domain]} {{
-        reverse_proxy platypus-pihole:80
+        reverse_proxy localhost:{answers[web_port]}
     }}
 
 compose_template: |
