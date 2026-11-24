@@ -321,9 +321,9 @@ def _execute(
 
     _compose_up(new_role, log)
 
-    # Caddy — update route for the new role
+    # Caddy — add the new module's route section
     log("  Caddy config update:")
-    caddy_mod.update(new_role, answers, log)
+    caddy_mod.upsert_route(new_role, answers, log)
 
     post_apply = new_template.get("hooks", {}).get("post_apply", [])
     if post_apply:
@@ -380,7 +380,7 @@ def _rollback(state: State, prev_active: str | None, new_role: str, log: Log) ->
         old_answers = None
 
     try:
-        caddy_mod.update(old, old_answers or {}, log)
+        caddy_mod.upsert_route(old, old_answers or {}, log)
     except BaseException as exc:
         log(f"  ! Caddy route restore failed: {exc}")
 

@@ -1,36 +1,27 @@
-"""Manage the Caddy reverse-proxy snippet for the active role.
+"""Manage the multi-section Caddy reverse-proxy snippet.
 
-Each role template may declare an optional ``caddy`` block.
-Because the route string is processed by Python's ``str.format_map``,
-Caddy block delimiters ``{`` and ``}`` MUST be doubled (``{{`` / ``}}``)
-so they survive template rendering unchanged:
+Each module template may declare an optional ``caddy`` block.  The
+managed file (default ``/opt/platypus/Caddyfile.d/platypus.conf``) holds
+one marked section per mounted module::
 
-    caddy:
-      enabled: true
-      route: |
-        {answers[domain]} {{
-            reverse_proxy localhost:{answers[port]}
-        }}
-
-After rendering with ``answers = {"domain": "x.com", "port": 8096}``:
-
-    x.com {
-        reverse_proxy localhost:8096
+    # platypus — auto-managed, do not edit manually
+    # begin module: pihole
+    pi.example.com {
+        reverse_proxy localhost:8080
     }
+    # end module: pihole
 
-When a role becomes active:
-  1. Render the route block with user answers.
-  2. Write it to PLATYPUS_CADDYFILE (default /opt/platypus/Caddyfile.d/platypus.conf).
-  3. Reload Caddy.
-
-When the incoming role has no caddy section (e.g. Minecraft), the snippet
-is cleared so the previous route is removed.
+``upsert_route`` renders and (re)writes one module's section; modules
+without an enabled caddy block are simply absent — mounting them never
+touches the other sections.  ``remove_route`` deletes one section.
+Because routes go through ``str.format_map``, Caddy block delimiters
+must be doubled (``{{`` / ``}}``) in templates.
 
 Environment variables
 ---------------------
 PLATYPUS_CADDYFILE
     Path to the managed Caddy snippet file.
-    Default: /opt/platypus/Caddyfile.d/platypus.conf
+    Default /opt/platypus/Caddyfile.d/platypus.conf
 
 PLATYPUS_CADDY_CONTAINER
     If set, Caddy reload is run via  docker exec <name> caddy reload.
@@ -40,6 +31,7 @@ PLATYPUS_CADDY_CONTAINER
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -55,6 +47,9 @@ CADDYFILE_PATH = Path(
     )
 )
 CADDY_CONTAINER = os.environ.get("PLATYPUS_CADDY_CONTAINER", "")
+
+HEADER = "# platypus — auto-managed, do not edit manually"
+EMPTY_HEADER = "# platypus — no active HTTP route"
 
 Log = Any  # Callable[[str], None]
 
@@ -79,6 +74,20 @@ def _caddy_section(role_name: str) -> dict | None:
 
 def _render_route(route_template: str, answers: dict[str, Any]) -> str:
     return route_template.format_map({"answers": answers})
+
+
+def _section_re(module: str) -> re.Pattern:
+    return re.compile(
+        rf"^# begin module: {re.escape(module)}\n.*?^# end module: {re.escape(module)}\n",
+        re.MULTILINE | re.DOTALL,
+    )
+
+
+def _read_content() -> str:
+    try:
+        return CADDYFILE_PATH.read_text(encoding="utf-8")
+    except OSError:
+        return ""
 
 
 def _write_snippet(content: str) -> None:
@@ -109,37 +118,63 @@ def _reload(log: Log) -> None:
     log("  ✓ Caddy reloaded.")
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-def update(role_name: str, answers: dict[str, Any], log: Log) -> None:
-    """
-    Write the Caddy snippet for *role_name* and reload Caddy.
-
-    If the role has no ``caddy`` section, or ``caddy.enabled`` is false,
-    the snippet is cleared (removing any previous route).
-    Reload failures are logged but do not abort the transition.
-    """
-    section = _caddy_section(role_name)
-
-    if not section or not section.get("enabled", False):
-        log(f"  No Caddy route for {role_name!r} — clearing snippet.")
-        _write_snippet("# platypus — no active HTTP route\n")
-    else:
-        route_tmpl: str = section.get("route", "")
-        if not route_tmpl.strip():
-            log("  caddy.enabled=true but route is empty — skipping.")
-            return
-        rendered = _render_route(route_tmpl, answers)
-        log(f"  Writing Caddy route for {role_name!r}…")
-        _write_snippet(
-            "# platypus — auto-managed, do not edit manually\n"
-            f"{rendered}\n"
-        )
-
+def _reload_safe(log: Log) -> None:
     try:
         _reload(log)
     except (CaddyError, FileNotFoundError, subprocess.TimeoutExpired) as exc:
         log(f"  ! Caddy reload skipped: {exc}")
 
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def upsert_route(module: str, answers: dict[str, Any], log: Log) -> None:
+    """Render *module*'s route and (re)write its marked section.
+
+    A module without an enabled caddy block is absent from the file —
+    other sections are never touched.  Reload failures are logged, never
+    raised.
+    """
+    section = _caddy_section(module)
+    block: str | None = None
+
+    if section and section.get("enabled", False):
+        route_tmpl: str = section.get("route", "")
+        if route_tmpl.strip():
+            rendered = _render_route(route_tmpl, answers)
+            log(f"  Writing Caddy route for {module!r}…")
+            block = (
+                f"# begin module: {module}\n{rendered}\n"
+                f"# end module: {module}\n"
+            )
+        else:
+            log("  caddy.enabled=true but route is empty — skipping.")
+    else:
+        log(f"  No Caddy route for {module!r} — section absent.")
+
+    content = _read_content()
+    content = _section_re(module).sub("", content)  # drop any old section
+    if block is not None:
+        content = content.replace(f"{HEADER}\n", "", 1)
+        content = content.replace(f"{EMPTY_HEADER}\n", "", 1)
+        content = f"{HEADER}\n{content}{block}"
+    elif not content.strip():
+        content = f"{EMPTY_HEADER}\n"
+    if not content.endswith("\n"):
+        content += "\n"
+    _write_snippet(content)
+    _reload_safe(log)
+
+
+def remove_route(module: str, log: Log) -> None:
+    """Delete *module*'s section; a missing section is a no-op."""
+    content = _read_content()
+    new_content = _section_re(module).sub("", content)
+    if new_content == content:
+        log(f"  No Caddy section for {module!r} — nothing to remove.")
+        return
+    if not new_content.strip() or new_content.strip() == HEADER:
+        new_content = f"{EMPTY_HEADER}\n"
+    _write_snippet(new_content)
+    _reload_safe(log)

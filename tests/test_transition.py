@@ -59,7 +59,7 @@ def test_rollback_composition(tmp_path, monkeypatch):
     monkeypatch.setattr(transition, "load_answers", lambda r: {"x": 1})
     monkeypatch.setattr(transition, "_compose_down",
                         lambda role, log, strict=False: order.append(("down", role)))
-    monkeypatch.setattr(transition.caddy_mod, "update",
+    monkeypatch.setattr(transition.caddy_mod, "upsert_route",
                         lambda role, answers, log: order.append(("caddy", role)))
     monkeypatch.setattr(transition, "_compose_up",
                         lambda role, log: order.append(("up", role)))
@@ -83,7 +83,7 @@ def test_rollback_step_failure_continues(tmp_path, monkeypatch):
     monkeypatch.setattr(transition, "load_answers", lambda r: {"x": 1})
     monkeypatch.setattr(transition, "_compose_down",
                         lambda role, log, strict=False: order.append(("down", role)))
-    monkeypatch.setattr(transition.caddy_mod, "update",
+    monkeypatch.setattr(transition.caddy_mod, "upsert_route",
                         lambda role, answers, log: (_ for _ in ()).throw(KeyboardInterrupt()))
     monkeypatch.setattr(transition, "_run_hooks",
                         lambda cmds, log, answers=None: order.append(("hooks", list(cmds))))
@@ -107,7 +107,7 @@ def test_rollback_targets_previous_role_when_save_fails(tmp_path, monkeypatch):
     monkeypatch.setattr(transition, "write_compose", lambda role, answers: tmp_path / "c.yml")
     monkeypatch.setattr(transition, "save_answers", lambda role, answers: tmp_path / "a.yml")
     monkeypatch.setattr(transition, "_compose_up", lambda role, log: None)
-    monkeypatch.setattr(transition.caddy_mod, "update", lambda role, answers, log: None)
+    monkeypatch.setattr(transition.caddy_mod, "upsert_route", lambda role, answers, log: None)
 
     def explode(state):
         raise RuntimeError("disk full")

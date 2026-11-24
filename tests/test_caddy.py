@@ -38,52 +38,42 @@ def test_reload_container_path(monkeypatch):
     assert calls == [["docker", "exec", "caddy1", "caddy", "reload"]]
 
 
+
 # ---------------------------------------------------------------------------
-# update() behavior
+# upsert_route() / remove_route() behavior
 # ---------------------------------------------------------------------------
 
 
-def test_no_route_clears_snippet_and_reloads(tmp_path, monkeypatch):
-    snippet = tmp_path / "snippet.conf"
+def test_upsert_then_remove_roundtrip(tmp_path, monkeypatch):
+    snippet = tmp_path / "platypus.conf"
     monkeypatch.setattr(caddy, "CADDYFILE_PATH", snippet)
-    calls = _fake_run(monkeypatch)
-    logs: list[str] = []
+    _fake_run(monkeypatch)
+    route = "{answers[domain]} {{\n    reverse_proxy localhost:{answers[p]}\n}}"
+    monkeypatch.setattr(caddy, "_caddy_section",
+                        lambda name: {"enabled": True, "route": route})
+    caddy.upsert_route("jellyfin", {"domain": "jf.x.com", "p": 8096}, lambda m: None)
+    caddy.upsert_route("pihole", {"domain": "pi.x.com", "p": 8080}, lambda m: None)
+    content = snippet.read_text(encoding="utf-8")
+    assert "# begin module: jellyfin" in content and "jf.x.com" in content
+    assert "# begin module: pihole" in content and "pi.x.com" in content
 
-    caddy.update("minecraft-server", {}, logs.append)  # must not raise
+    caddy.remove_route("jellyfin", lambda m: None)
+    content = snippet.read_text(encoding="utf-8")
+    assert "jellyfin" not in content and "pi.x.com" in content
 
-    assert snippet.read_text(encoding="utf-8") == (
-        "# platypus — no active HTTP route\n"
-    )
-    assert calls == [["caddy", "reload"]]
-    assert any("No Caddy route" in m for m in logs)
+
+def test_upsert_without_route_is_absent_not_clearing(tmp_path, monkeypatch):
+    snippet = tmp_path / "platypus.conf"
+    monkeypatch.setattr(caddy, "CADDYFILE_PATH", snippet)
+    _fake_run(monkeypatch)
+    monkeypatch.setattr(caddy, "_caddy_section", lambda name: None)
+    caddy.upsert_route("minecraft-server", {}, lambda m: None)
+    assert snippet.read_text(encoding="utf-8") == "# platypus \u2014 no active HTTP route\n"
 
 
 def test_reload_failure_logs_but_does_not_raise(tmp_path, monkeypatch):
-    monkeypatch.setattr(caddy, "CADDYFILE_PATH", tmp_path / "snippet.conf")
+    monkeypatch.setattr(caddy, "CADDYFILE_PATH", tmp_path / "platypus.conf")
     _fake_run(monkeypatch, returncode=1, stderr="boom")
     logs: list[str] = []
-
-    caddy.update("minecraft-server", {}, logs.append)  # must not raise
-
+    caddy.upsert_route("anything", {}, logs.append)  # section-less; still fine
     assert any("Caddy reload skipped" in m for m in logs)
-
-
-def test_enabled_route_renders_doubled_braces(tmp_path, monkeypatch):
-    snippet = tmp_path / "snippet.conf"
-    monkeypatch.setattr(caddy, "CADDYFILE_PATH", snippet)
-    _fake_run(monkeypatch)
-    # Same shape as a real template.yml caddy.route: placeholders in single
-    # braces, Caddy block delimiters doubled so they survive format_map.
-    template = "{answers[domain]} {{\n    reverse_proxy localhost:{answers[port]}\n}}"
-    monkeypatch.setattr(
-        caddy,
-        "_caddy_section",
-        lambda name: {"enabled": True, "route": template},
-    )
-
-    caddy.update("fake-role", {"domain": "x.com", "port": 8096}, lambda m: None)
-
-    content = snippet.read_text(encoding="utf-8")
-    assert "x.com {" in content
-    assert "reverse_proxy localhost:8096" in content
-    assert content.endswith("}\n")
