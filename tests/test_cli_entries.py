@@ -55,26 +55,85 @@ def test_zero2server_main_help_exits_zero():
 def test_recipe_switch_accepts_force_unlock(monkeypatch):
     recorded = {}
 
-    def fake_switch(role, answers=None, log=print, force_unlock=False):
-        recorded["role"] = role
+    def fake_mount(module, answers=None, log=print, force_unlock=False):
+        recorded["module"] = module
         recorded["force_unlock"] = force_unlock
-        return 0
+        return None
 
-    monkeypatch.setattr(recipe_cli, "switch", fake_switch)
-    # Saved answers exist: _cmd_switch must take the reuse path and never
+    monkeypatch.setattr(recipe_cli, "mount", fake_mount)
+    # Saved answers exist: _cmd_mount must take the reuse path and never
     # fall into the interactive question form (stdin is captured in CI).
     monkeypatch.setattr(recipe_cli, "load_answers", lambda role: {"a": 1})
     assert recipe_cli.main(["switch", "minecraft-server", "--force-unlock"]) == 0
-    assert recorded == {"role": "minecraft-server", "force_unlock": True}
+    assert recorded == {"module": "minecraft-server", "force_unlock": True}
 
 
 def test_recipe_switch_ctrl_c_prints_clean_message(monkeypatch, capsys):
-    def fake_switch(role, answers=None, log=print, force_unlock=False):
+    def fake_mount(module, answers=None, log=print, force_unlock=False):
         raise KeyboardInterrupt()
 
-    monkeypatch.setattr(recipe_cli, "switch", fake_switch)
+    monkeypatch.setattr(recipe_cli, "mount", fake_mount)
     monkeypatch.setattr(recipe_cli, "load_answers", lambda role: {"a": 1})
     assert recipe_cli.main(["switch", "syncthing"]) == 130
     err = capsys.readouterr().err
     assert "Interrupted" in err
     assert "Traceback" not in err
+
+
+def test_cli_mount_reuses_saved_answers(monkeypatch):
+    recorded = {}
+
+    def fake_mount(module, answers=None, log=print, force_unlock=False):
+        recorded["module"] = module
+        recorded["answers"] = answers
+        recorded["force_unlock"] = force_unlock
+        return None
+
+    monkeypatch.setattr(recipe_cli, "mount", fake_mount)
+    monkeypatch.setattr(recipe_cli, "load_answers", lambda role: {"web_port": 8080})
+    assert recipe_cli.main(["mount", "pihole", "--force-unlock"]) == 0
+    assert recorded == {
+        "module": "pihole",
+        "answers": {"web_port": 8080},   # reuse path: form never ran
+        "force_unlock": True,
+    }
+
+
+def test_cli_mount_runs_form_when_unconfigured(monkeypatch):
+    monkeypatch.setattr(recipe_cli, "load_answers", lambda role: None)
+    monkeypatch.setattr(recipe_cli, "_collect_answers",
+                        lambda role, defaults=None: {"fresh": "form"})
+    recorded = {}
+    monkeypatch.setattr(
+        recipe_cli, "mount",
+        lambda module, answers=None, log=print, force_unlock=False:
+            recorded.update(module=module, answers=answers),
+    )
+    assert recipe_cli.main(["mount", "pihole"]) == 0
+    assert recorded == {"module": "pihole", "answers": {"fresh": "form"}}
+
+
+def test_cli_dismount_refuses_unmounted(monkeypatch, capsys):
+    def fake_dismount(module, log=print, force_unlock=False):
+        raise recipe_cli.TransitionError(f"Module {module!r} is not mounted.")
+
+    monkeypatch.setattr(recipe_cli, "dismount", fake_dismount)
+    assert recipe_cli.main(["dismount", "jellyfin"]) == 1
+    assert "not mounted" in capsys.readouterr().err
+
+
+def test_cli_reconfigure_passes_form_answers(monkeypatch):
+    monkeypatch.setattr(recipe_cli, "load_answers", lambda role: {"web_port": 8080})
+    monkeypatch.setattr(recipe_cli, "_collect_answers",
+                        lambda role, defaults=None: dict(defaults or {}, new=1))
+    recorded = {}
+    monkeypatch.setattr(
+        recipe_cli, "reconfigure",
+        lambda module, answers=None, log=print, force_unlock=False:
+            recorded.update(module=module, answers=answers),
+    )
+    assert recipe_cli.main(["reconfigure", "syncthing"]) == 0
+    assert recorded == {
+        "module": "syncthing",
+        "answers": {"web_port": 8080, "new": 1},  # pre-filled defaults
+    }

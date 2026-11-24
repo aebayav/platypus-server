@@ -6,23 +6,29 @@ import importlib
 import sys
 
 SUBCOMMANDS: dict[str, tuple[str, str, str | None]] = {
-    "doctor":    ("doctor",          "main", None),
-    "setup":     ("tui.app",         "main", None),
-    "dashboard": ("dashboard.app",   "main", None),
-    "switch":    ("recipe.cli",      "main", "switch"),
-    "status":    ("recipe.cli",      "main", "status"),
-    "generate":  ("zero2server.cli", "main", None),
+    "doctor":      ("doctor",          "main", None),
+    "setup":       ("tui.app",         "main", None),
+    "dashboard":   ("dashboard.app",   "main", None),
+    "mount":       ("recipe.cli",     "main", "mount"),
+    "dismount":    ("recipe.cli",     "main", "dismount"),
+    "reconfigure": ("recipe.cli",     "main", "reconfigure"),
+    "switch":      ("recipe.cli",     "main", "switch"),
+    "status":      ("recipe.cli",     "main", "status"),
+    "generate":    ("zero2server.cli", "main", None),
 }
 
 USAGE = (
     "usage: platypus [--version] <command> [args...]\n\n"
     "Commands:\n"
-    "  doctor     pre-flight checks for a fresh install\n"
-    "  setup      interactive server setup (TUI)\n"
-    "  dashboard  web dashboard\n"
-    "  switch     switch the server to another role\n"
-    "  status     show active and dormant roles\n"
-    "  generate   generate docker-compose.yml + Caddyfile\n"
+    "  doctor      pre-flight checks for a fresh install\n"
+    "  setup       interactive server setup (TUI)\n"
+    "  dashboard   web dashboard\n"
+    "  mount       mount a module (additive; others keep running)\n"
+    "  dismount    stop and freeze a mounted module\n"
+    "  reconfigure re-answer a module's questions and apply\n"
+    "  switch      deprecated alias of mount\n"
+    "  status      show mounted and dormant modules\n"
+    "  generate    generate docker-compose.yml + Caddyfile\n"
 )
 
 

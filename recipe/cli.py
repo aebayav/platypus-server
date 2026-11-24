@@ -19,7 +19,14 @@ from . import state as state_mod
 from . import lock as lock_mod
 from .model import PLATYPUS_ROLES_DIR, role_dir
 from .renderer import load_answers, save_answers
-from .transition import TransitionError, TransitionInterrupted, switch
+from .transition import (
+    TransitionError,
+    TransitionInterrupted,
+    dismount,
+    mount,
+    reconfigure,
+    switch,
+)
 from .validate import check_answer
 
 
@@ -27,8 +34,13 @@ from .validate import check_answer
 # TUI form (simple terminal fallback — full Textual form added later)
 # ---------------------------------------------------------------------------
 
-def _collect_answers(role_name: str) -> dict[str, Any]:
-    """Prompt the user for each question defined in questions.yml."""
+def _collect_answers(role_name: str, defaults: dict | None = None) -> dict[str, Any]:
+    """Prompt the user for each question defined in questions.yml.
+
+    *defaults* (the module's current answers) take precedence over the
+    question spec's own defaults — used by reconfigure so the form is
+    pre-filled.
+    """
     try:
         questions_file = role_dir(role_name) / "questions.yml"
     except FileNotFoundError as exc:
@@ -50,7 +62,7 @@ def _collect_answers(role_name: str) -> dict[str, Any]:
         qid      = q["id"]
         label    = q["label"]
         qtype    = q["type"]
-        default  = q.get("default")
+        default  = (defaults or {}).get(qid, q.get("default"))
         choices  = q.get("choices", [])
         required = q.get("required", False)
 
@@ -118,31 +130,89 @@ def _collect_answers(role_name: str) -> dict[str, Any]:
 # Sub-commands
 # ---------------------------------------------------------------------------
 
-def _cmd_switch(args: argparse.Namespace) -> int:
-    role = args.role
+def _collect_with_form(role: str, defaults: dict | None = None) -> dict | int:
+    """Run the question form; returns answers or an exit code on cancel."""
+    print(f"Module {role!r}: first-time setup — please answer the following questions.")
+    try:
+        return _collect_answers(role, defaults=defaults)
+    except (KeyboardInterrupt, EOFError):
+        print("\nSetup cancelled.")
+        return 1
 
-    # Check for existing answers
-    existing = load_answers(role)
+
+def _cmd_mount(args: argparse.Namespace) -> int:
+    module = args.module
+
+    existing = load_answers(module)
     if existing is not None:
-        print(f"Role {role!r}: existing config found — reusing without prompting.")
+        print(f"Module {module!r}: existing config found — reusing without prompting.")
         answers = existing
     else:
-        print(f"Role {role!r}: first-time setup — please answer the following questions.")
-        try:
-            answers = _collect_answers(role)
-        except (KeyboardInterrupt, EOFError):
-            print("\nSetup cancelled.")
-            return 1
+        answers = _collect_with_form(module)
+        if isinstance(answers, int):
+            return answers
 
-    print(f"\nplatypus-server switch → {role!r}\n")
+    print(f"\nplatypus mount → {module!r}\n")
     try:
-        switch(role, answers=answers, log=print, force_unlock=args.force_unlock)
+        mount(module, answers=answers, log=print, force_unlock=args.force_unlock)
         return 0
     except (KeyboardInterrupt, TransitionInterrupted):
         # The engine already rolled back (or nothing had started yet) —
         # show one clean line instead of a raw traceback.
         print(
-            "\nInterrupted — the server is in its pre-switch state "
+            "\nInterrupted — the server is in its pre-mount state "
+            "(rollback details above, if any).",
+            file=sys.stderr,
+        )
+        return 130
+    except TransitionError as exc:
+        print(f"\nError: {exc}", file=sys.stderr)
+        return 1
+
+
+#: Deprecated spelling of mount — the alias is deliberate (additive).
+_cmd_switch = _cmd_mount
+
+
+def _cmd_dismount(args: argparse.Namespace) -> int:
+    module = args.module
+    print(f"\nplatypus dismount → {module!r}\n")
+    try:
+        dismount(module, log=print, force_unlock=args.force_unlock)
+        return 0
+    except (KeyboardInterrupt, TransitionInterrupted):
+        print(
+            "\nInterrupted — the module was left mounted "
+            "(details above, if any).",
+            file=sys.stderr,
+        )
+        return 130
+    except TransitionError as exc:
+        print(f"\nError: {exc}", file=sys.stderr)
+        return 1
+
+
+def _cmd_reconfigure(args: argparse.Namespace) -> int:
+    module = args.module
+
+    # Always re-run the form, pre-filled with the current answers.
+    current = load_answers(module) or {}
+    print(f"Module {module!r}: re-answering the questions "
+          "(current values are the defaults).")
+    try:
+        answers = _collect_answers(module, defaults=current)
+    except (KeyboardInterrupt, EOFError):
+        print("\nSetup cancelled.")
+        return 1
+
+    print(f"\nplatypus reconfigure → {module!r}\n")
+    try:
+        reconfigure(module, answers=answers, log=print,
+                    force_unlock=args.force_unlock)
+        return 0
+    except (KeyboardInterrupt, TransitionInterrupted):
+        print(
+            "\nInterrupted — the previous configuration still applies "
             "(rollback details above, if any).",
             file=sys.stderr,
         )
@@ -168,7 +238,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
             f"\n⚠  Transition lock  target={file_lock.get('target')!r}  "
             f"PID={file_lock.get('pid')}  started={file_lock.get('started_at')}"
         )
-        print("   If no switch is running, recover with:  platypus-server switch <role> --force-unlock")
+        print("   If no transition is running, recover with:  platypus mount <module> --force-unlock")
 
     # Dormant roles — scan /opt/platypus/roles/
     dormant = []
@@ -184,7 +254,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
                 })
 
     if dormant:
-        print(f"\n{'Dormant roles'}")
+        print(f"\n{'Dormant modules'}")
         print("─" * 44)
         for r in dormant:
             cfg  = "configured" if r["configured"] else "not configured"
@@ -213,20 +283,46 @@ def _cmd_status(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="platypus-server",
-        description="Platypus server role management",
+        description="Platypus server module management",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_switch = sub.add_parser("switch", help="Switch to a different server role")
-    p_switch.add_argument("role", help="Target role name, e.g. minecraft-server")
-    p_switch.add_argument(
-        "--force-unlock",
-        action="store_true",
-        help="steal a live transition lock held by another process",
+    def _add_common(p):
+        p.add_argument(
+            "--force-unlock",
+            action="store_true",
+            help="steal a live transition lock held by another process",
+        )
+        return p
+
+    p_mount = _add_common(
+        sub.add_parser("mount", help="Mount a module (additive; others keep running)")
     )
+    p_mount.add_argument("module", help="Target module, e.g. minecraft-server")
+    p_mount.set_defaults(func=_cmd_mount)
+
+    p_dismount = _add_common(
+        sub.add_parser("dismount", help="Dismount a module (stop and freeze it)")
+    )
+    p_dismount.add_argument("module", help="Mounted module to dismount")
+    p_dismount.set_defaults(func=_cmd_dismount)
+
+    p_reconfigure = _add_common(
+        sub.add_parser("reconfigure", help="Re-answer a module's questions and apply")
+    )
+    p_reconfigure.add_argument("module", help="Module to reconfigure")
+    p_reconfigure.set_defaults(func=_cmd_reconfigure)
+
+    p_switch = _add_common(
+        sub.add_parser(
+            "switch",
+            help="Deprecated alias of mount (additive, not replacing)",
+        )
+    )
+    p_switch.add_argument("module", help="Target module, e.g. minecraft-server")
     p_switch.set_defaults(func=_cmd_switch)
 
-    p_status = sub.add_parser("status", help="Show active role, dormant roles, history")
+    p_status = sub.add_parser("status", help="Show mounted, dormant modules, history")
     p_status.set_defaults(func=_cmd_status)
 
     args = parser.parse_args(argv)

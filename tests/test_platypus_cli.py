@@ -9,7 +9,8 @@ import platypus_cli.cli as cli
 
 def test_subcommand_table():
     assert set(cli.SUBCOMMANDS) == {
-        "doctor", "setup", "dashboard", "switch", "status", "generate",
+        "doctor", "setup", "dashboard", "mount", "dismount", "reconfigure",
+        "switch", "status", "generate",
     }
 
 
@@ -19,6 +20,9 @@ def test_subcommand_table():
         (["doctor", "--target", "vps"], ("doctor", "main", None, ["--target", "vps"])),
         (["setup", "--mode", "simple"], ("tui.app", "main", None, ["--mode", "simple"])),
         (["dashboard", "--port", "6000"], ("dashboard.app", "main", None, ["--port", "6000"])),
+        (["mount", "minecraft-server"], ("recipe.cli", "main", "mount", ["minecraft-server"])),
+        (["dismount", "pihole"], ("recipe.cli", "main", "dismount", ["pihole"])),
+        (["reconfigure", "syncthing"], ("recipe.cli", "main", "reconfigure", ["syncthing"])),
         (["switch", "minecraft-server"], ("recipe.cli", "main", "switch", ["minecraft-server"])),
         (["status"], ("recipe.cli", "main", "status", [])),
         (["generate", "--run"], ("zero2server.cli", "main", None, ["--run"])),
