@@ -70,7 +70,7 @@ def resolve_claims(template: dict, answers: dict[str, Any]) -> set[Claim]:
     engine stops anything.
     """
     claims: set[Claim] = set()
-    for entry in template.get("ports", []):
+    for entry in template.get("ports") or []:
         parsed = parse_ports_entry(entry)
         port = _resolve_port(parsed["port"], answers)
         claims.add((port, parsed["proto"]))

@@ -159,17 +159,33 @@ def _compose_up(module_name: str, log: Log) -> None:
         )
 
 
+def _load_questions(module: str) -> list[dict]:
+    """Read the module's questions spec (questions.yml); missing → []."""
+    try:
+        path = role_dir(module) / "questions.yml"
+    except FileNotFoundError:
+        return []
+    try:
+        with path.open(encoding="utf-8") as fh:
+            spec = yaml.safe_load(fh) or {}
+    except OSError:
+        return []
+    questions = spec.get("questions") or []
+    return [q for q in questions if isinstance(q, dict)]
+
+
 def _pre_flight(
     module: str,
     template: dict,
     answers: dict[str, Any],
     state: State,
+    log: Log,
     skip_self: bool = False,
 ) -> None:
     """Validate answers and claims against the mounted set, BEFORE the
     lock and before anything is stopped.  Raises TransitionError with an
     actionable message pointing at ``platypus reconfigure``."""
-    questions = template.get("questions", [])
+    questions = _load_questions(module)
     problems = validate_answers(questions, answers)
     if problems:
         raise TransitionError(
@@ -194,8 +210,12 @@ def _pre_flight(
             mounted_claims[name] = resolve_claims(
                 other_template, load_answers(name) or {}
             )
-        except (TransitionError, KeyError, ValueError):
-            continue  # a broken OTHER module must not block this mount
+        except (TransitionError, KeyError, ValueError, TypeError,
+                yaml.YAMLError, OSError) as exc:
+            log(
+                f"  ⚠ mounted module {name!r} has unresolvable "
+                f"answers/claims — its conflict check was skipped ({exc})"
+            )
 
     conflicts = find_conflicts(module, new_claims, mounted_claims)
     if conflicts:
@@ -247,7 +267,7 @@ def mount(
     else:
         log(f"  Using newly collected answers for {new_module!r}.")
 
-    _pre_flight(new_module, new_template, answers, state)
+    _pre_flight(new_module, new_template, answers, state, log)
     _acquire(new_module, force_unlock, log)
 
     try:
@@ -332,12 +352,12 @@ def reconfigure(
     mounted = module in state.mounted
 
     if not mounted:
-        _pre_flight(module, template, answers, state)
+        _pre_flight(module, template, answers, state, log)
         save_answers(module, answers)
         log(f"  ✓ {module!r} is dormant — answers saved; applied at next mount.")
         return
 
-    _pre_flight(module, template, answers, state, skip_self=True)
+    _pre_flight(module, template, answers, state, log, skip_self=True)
     _acquire(module, force_unlock, log)
     try:
         with _interruptible():
