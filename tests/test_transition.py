@@ -25,8 +25,7 @@ def _fake_procs(monkeypatch, results=None):
 
 def _blank_state():
     return transition.state_mod.State(
-        schema_version="1", active=None, activated_at=None,
-        transition_lock=None, history=[])
+        schema_version="2", mounted=[], history=[])
 
 
 def test_switch_lock_error_becomes_transition_error(tmp_path, monkeypatch):
@@ -55,8 +54,7 @@ def test_switch_releases_lock_on_success(tmp_path, monkeypatch):
 
 def test_rollback_composition(tmp_path, monkeypatch):
     state = transition.state_mod.State(
-        schema_version="1", active="pihole", activated_at=None,
-        transition_lock=None, history=[])
+        schema_version="2", mounted=["pihole"], history=[])
     order = []
     monkeypatch.setattr(transition, "load_answers", lambda r: {"x": 1})
     monkeypatch.setattr(transition, "_compose_down",
@@ -80,8 +78,7 @@ def test_rollback_composition(tmp_path, monkeypatch):
 
 def test_rollback_step_failure_continues(tmp_path, monkeypatch):
     state = transition.state_mod.State(
-        schema_version="1", active="pihole", activated_at=None,
-        transition_lock=None, history=[])
+        schema_version="2", mounted=["pihole"], history=[])
     order = []
     monkeypatch.setattr(transition, "load_answers", lambda r: {"x": 1})
     monkeypatch.setattr(transition, "_compose_down",
@@ -103,8 +100,7 @@ def test_rollback_targets_previous_role_when_save_fails(tmp_path, monkeypatch):
     monkeypatch.setattr(lock, "LOCK_PATH", tmp_path / "transition.lock")
     monkeypatch.setattr(transition, "PLATYPUS_ROLES_DIR", tmp_path / "roles")
     monkeypatch.setattr(transition.state_mod, "load", lambda: transition.state_mod.State(
-        schema_version="1", active="jellyfin", activated_at=None,
-        transition_lock=None, history=[]))
+        schema_version="2", mounted=["jellyfin"], history=[]))
     calls = []
     monkeypatch.setattr(transition, "_rollback",
                         lambda s, prev, new, log: calls.append((prev, new)))

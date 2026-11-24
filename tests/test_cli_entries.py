@@ -31,7 +31,7 @@ def test_dashboard_parse_args_hard_defaults(monkeypatch):
 
 def test_recipe_main_status_returns_zero(capsys):
     assert recipe_cli.main(["status"]) == 0
-    assert "role" in capsys.readouterr().out.lower()
+    assert "mounted" in capsys.readouterr().out.lower()
 
 
 def test_recipe_main_help_exits_zero():

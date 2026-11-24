@@ -80,26 +80,11 @@ class HistoryEntry:
 
 @dataclass
 class State:
-    """Full contents of /opt/platypus/state.yml."""
+    """Full contents of /opt/platypus/state.yml (schema v2)."""
+
     schema_version:  str
-    active:          str | None
-    activated_at:    datetime | None
-    transition_lock: dict | None
-    history:         list[HistoryEntry]
-
-    # ----------------------------------------------------------------
-    # Convenience helpers (not persisted)
-    # ----------------------------------------------------------------
-    @property
-    def active_role_dir(self) -> Path | None:
-        if not self.active:
-            return None
-        return PLATYPUS_ROLES_DIR / self.active
-
-    @property
-    def active_compose(self) -> Path | None:
-        d = self.active_role_dir
-        return (d / "docker-compose.yml") if d else None
+    mounted:          list[str]
+    history:          list[HistoryEntry]
 
 
 # ---------------------------------------------------------------------------

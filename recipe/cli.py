@@ -155,16 +155,12 @@ def _cmd_switch(args: argparse.Namespace) -> int:
 def _cmd_status(args: argparse.Namespace) -> int:
     state = state_mod.load()
 
-    # Active role
-    if state.active:
-        since = (
-            state.activated_at.strftime("%Y-%m-%d %H:%M UTC")
-            if state.activated_at else "unknown"
-        )
-        print(f"Active role : {state.active}")
-        print(f"Since       : {since}")
+    # Mounted modules
+    if state.mounted:
+        for name in state.mounted:
+            print(f"Mounted    : {name}")
     else:
-        print("No active role.")
+        print("No modules mounted.")
 
     file_lock = lock_mod.read()
     if file_lock:
@@ -178,7 +174,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
     dormant = []
     if PLATYPUS_ROLES_DIR.exists():
         for d in sorted(PLATYPUS_ROLES_DIR.iterdir()):
-            if d.is_dir() and d.name != state.active:
+            if d.is_dir() and d.name not in state.mounted:
                 answers_file = d / "answers.yml"
                 data_dir = d / "data"
                 dormant.append({

@@ -55,6 +55,13 @@ def atomic_write(path: Path, data: str) -> None:
     tmp.replace(path)
 
 
+SCHEMA_VERSION = "2"  # v1 (single active role) migrates automatically on load
+
+
+def _blank_state() -> State:
+    return State(schema_version=SCHEMA_VERSION, mounted=[], history=[])
+
+
 def load() -> State:
     """Load state from STATE_FILE. Returns a blank State if the file is absent.
 
@@ -90,13 +97,7 @@ def load() -> State:
 
 def _load_from(path: Path) -> State:
     if not path.exists():
-        return State(
-            schema_version="1",
-            active=None,
-            activated_at=None,
-            transition_lock=None,
-            history=[],
-        )
+        return _blank_state()
 
     with path.open(encoding="utf-8") as fh:
         raw: dict = yaml.safe_load(fh) or {}
@@ -110,11 +111,50 @@ def _load_from(path: Path) -> State:
         for h in raw.get("history", [])
     ]
 
+    if raw.get("schema_version") != SCHEMA_VERSION:
+        # v1 (or legacy): a single `active` role becomes the mounted set.
+        active = raw.get("active")
+        st = State(
+            schema_version=SCHEMA_VERSION,
+            mounted=[active] if active else [],
+            history=history,
+        )
+        print(
+            f"Upgraded {path.name} to state schema v2 "
+            "(active role -> mounted set); previous file kept as .bak.",
+            file=sys.stderr,
+        )
+        try:
+            atomic_write(
+                STATE_FILE,
+                yaml.safe_dump(
+                    {
+                        "schema_version": st.schema_version,
+                        "mounted": st.mounted,
+                        "history": [
+                            {
+                                "role": h.role,
+                                "activated_at": h.activated_at.isoformat(),
+                                "deactivated_at": (
+                                    h.deactivated_at.isoformat()
+                                    if h.deactivated_at
+                                    else None
+                                ),
+                            }
+                            for h in st.history
+                        ],
+                    },
+                    allow_unicode=True,
+                    sort_keys=False,
+                ),
+            )
+        except OSError:
+            pass  # read-only mounts: the next save persists the migration
+        return st
+
     return State(
-        schema_version=raw.get("schema_version", "1"),
-        active=raw.get("active"),
-        activated_at=_parse_dt(raw.get("activated_at")),
-        transition_lock=raw.get("transition_lock"),
+        schema_version=SCHEMA_VERSION,
+        mounted=list(raw.get("mounted", [])),
         history=history,
     )
 
@@ -125,13 +165,7 @@ def save(state: State) -> None:
 
     data: dict = {
         "schema_version": state.schema_version,
-        "active": state.active,
-        "activated_at": (
-            state.activated_at.isoformat() if state.activated_at else None
-        ),
-        # transition_lock is intentionally NOT written: locking is owned
-        # by the transition.lock file since 0.2.1.  The State field stays
-        # so old files that still carry the key keep loading.
+        "mounted": list(state.mounted),
         "history": [
             {
                 "role": h.role,

@@ -167,6 +167,11 @@ def _compose_up(role_name: str, log: Log) -> None:
 # Public API
 # ---------------------------------------------------------------------------
 
+def _single(state: State) -> str | None:
+    """The last-mounted module (v1 transitional helper; Task 6 removes it)."""
+    return state.mounted[-1] if state.mounted else None
+
+
 def switch(
     new_role_name: str,
     answers: dict[str, Any] | None = None,
@@ -190,10 +195,10 @@ def switch(
         Steal a live transition lock held by another process.
     """
     state = state_mod.load()
-    prev_active = state.active
+    prev_active = _single(state)
 
-    if new_role_name == state.active:
-        log(f"Role {new_role_name!r} is already active — nothing to do.")
+    if new_role_name in state.mounted:
+        log(f"Module {new_role_name!r} is already mounted — nothing to do.")
         return
 
     # ------------------------------------------------------------------
@@ -254,10 +259,10 @@ def _execute(
     _hr = "─" * 52
 
     # ==================================================================
-    # PHASE 1 — Stop current role
+    # PHASE 1 — Stop current module (transitional: the single mounted one)
     # ==================================================================
-    if state.active:
-        cur = state.active
+    if prev := _single(state):
+        cur = prev
         log(f"\n{_hr}")
         log(f"  Phase 1  Stopping: {cur!r}")
         log(_hr)
@@ -332,8 +337,7 @@ def _execute(
     state.history.append(
         HistoryEntry(role=new_role, activated_at=now, deactivated_at=None)
     )
-    state.active = new_role
-    state.activated_at = now
+    state.mounted = [new_role]  # transitional single-module semantics
     state_mod.save(state)
 
     log(f"\n{'═' * 52}")
