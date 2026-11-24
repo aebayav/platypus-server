@@ -34,7 +34,7 @@ options.
 | Pre-flight checks | `platypus doctor` | Verify the machine before installing anything |
 | TUI setup | `platypus setup` | Interactive Linux server setup (Textual) |
 | Web dashboard | `platypus dashboard` | Services, metrics and container management (Flask) |
-| Server roles | `platypus switch`, `platypus status` | Switch the server between pre-built roles |
+| Modules | `platypus mount`, `platypus dismount`, `platypus reconfigure`, `platypus status` | Mount, freeze and re-answer pre-built modules — several at once |
 | Compose generator | `platypus generate` | Generate docker-compose.yml and Caddyfile |
 | Ansible layer | playbooks, inventory | Configuration management for dev/prod |
 
@@ -200,8 +200,8 @@ platypus-server/
 ├── tui/                    # Textual TUI (server setup)
 │   └── settings.py         # mode (simple/full) + target (home/vps) settings
 ├── dashboard/              # Flask web dashboard
-├── recipe/                 # Server-role switch system
-│   └── roles/              # The seven recipe role templates (shipped in the package)
+├── recipe/                 # Module system (mount/dismount engine)
+│   └── modules/            # The seven module templates (shipped in the package)
 ├── zero2server/            # docker-compose + Caddyfile generator
 ├── roles/                  # Ansible roles only: common, security, platypus
 │   └── common/molecule/    # Ansible role tests
@@ -227,9 +227,9 @@ platypus-server/
 └── .yamllint.yml
 ```
 
-The recipe role templates (`template.yml` + `questions.yml` per role) live in
-`recipe/roles/` and ship inside the Python package, so a pipx/pip install
-includes them; the recipe system resolves them there first, with the
+The module templates (`template.yml` + `questions.yml` per module) live in
+`recipe/modules/` and ship inside the Python package, so a pipx/pip install
+includes them; the module system resolves them there first, with the
 repository root's `roles/` as a fallback for editable checkouts.
 
 ## Ansible
@@ -397,46 +397,70 @@ automatically on boot and restarts it if it crashes:
 systemctl status platypus-dashboard
 ```
 
-## Server Roles (`platypus switch`)
+## Modules (`platypus mount` / `platypus dismount`)
 
-The recipe system switches the whole server between pre-built roles. Each
-role is defined by two files under `recipe/roles/<name>/`:
+The module system lets one server serve several purposes, one mounted
+module at a time or several together — without idle services. Each
+module is defined by two files under `recipe/modules/<name>/`:
 
-- `template.yml` — docker-compose template, hooks and an optional Caddy route
-- `questions.yml` — questions asked during first-time setup
+- `template.yml` — docker-compose template, hooks, declared `ports:`
+  claims, `weight: main|companion` label, and an optional Caddy route
+- `questions.yml` — questions asked during first-time setup (with
+  enforced value ranges)
 
-### Built-in roles
+### Built-in modules
 
-| Role | Image | Description |
-|---|---|---|
-| `minecraft-server` | itzg/minecraft-server | Minecraft Java Edition with RCON-safe shutdown |
-| `storage-nextcloud` | nextcloud:28-apache + mariadb:10.11 | Personal cloud storage |
-| `storage-samba` | dperson/samba | SMB/CIFS file sharing |
-| `pihole` | pihole/pihole | Network-wide ad blocking (DNS sinkhole) |
-| `syncthing` | syncthing/syncthing | File synchronization between devices |
-| `jellyfin` | jellyfin/jellyfin | Media server (movies, TV, music) |
-| `assetto-corsa` | germanrcuriel/assetto-corsa-server | Assetto Corsa dedicated racing server |
+| Module | Image | Weight | Description |
+|---|---|---|---|
+| `minecraft-server` | itzg/minecraft-server | main | Minecraft Java Edition with RCON-safe shutdown |
+| `storage-nextcloud` | nextcloud:28-apache + mariadb:10.11 | main | Personal cloud storage |
+| `storage-samba` | dperson/samba | companion | SMB/CIFS file sharing |
+| `pihole` | pihole/pihole | companion | Network-wide ad blocking (DNS sinkhole) |
+| `syncthing` | syncthing/syncthing | companion | File synchronization between devices |
+| `jellyfin` | jellyfin/jellyfin | main | Media server (movies, TV, music) |
+| `assetto-corsa` | germanrcuriel/assetto-corsa-server | main | Assetto Corsa dedicated racing server |
+
+`weight` is a recommendation label only: `companion` modules are light
+and port-conflict-free — good always-on candidates next to a heavier
+`main` module.
 
 ### Usage
 
 ```bash
-# Switch to a role (prompts for answers on first run)
-platypus switch minecraft-server
+# Mount a module (prompts for answers on first run)
+platypus mount minecraft-server
 
-# Show active role, dormant roles and transition history
+# Companions keep running — several modules may be mounted together
+platypus mount pihole
+
+# Stop and freeze exactly one module (its data and answers stay)
+platypus dismount minecraft-server
+
+# Re-answer a module's questions and apply (live when mounted)
+platypus reconfigure syncthing
+
+# Show mounted set, dormant modules and transition history
 platypus status
 ```
 
-During a switch, the current role is stopped (including its `pre_remove`
-hooks, e.g. RCON save for Minecraft), the new role's `docker-compose.yml` is
-rendered from the template and answers, the stack is started, the Caddy route
-is updated, and the state is recorded in `/opt/platypus/state.yml`. Existing
-answers are reused on later switches, and a transition lock with rollback
-protects against interrupted switches.
+`platypus switch <module>` still works as a **deprecated alias of
+mount** — it is additive, not replacing.
 
-Runtime data lives under `/opt/platypus/roles/<role>/` (`answers.yml`,
-`docker-compose.yml`, bind-mounted `./data`). The role system targets Linux
-hosts.
+A mount validates the module's answers and its declared port claims
+against the mounted set **before touching anything**: a conflict (say,
+two modules claiming port 53) is refused with a pointer at
+`platypus reconfigure`, and the pre-flight also refuses invalid
+answers (e.g. out-of-range ports). During the mount, the new module's
+`docker-compose.yml` is rendered from the template and answers, the
+stack is started, its Caddy section is added, and the state is recorded
+in `/opt/platypus/state.yml`. Existing answers are reused on later
+mounts, and an atomic lock with real rollback protects against
+interrupted operations. Dismount runs the module's `pre_remove` hooks
+(e.g. RCON save for Minecraft) before stopping the stack.
+
+Runtime data lives under `/opt/platypus/roles/<module>/` (`answers.yml`,
+`docker-compose.yml`, bind-mounted `./data`). The module system targets
+Linux hosts.
 
 ## Compose generator (`platypus generate`)
 
