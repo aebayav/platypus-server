@@ -1,4 +1,4 @@
-"""Switch flow: stop current role → start new role.
+"""The mount/dismount engine: manage the server's mounted module set.
 
 Stop mechanism
 --------------
@@ -9,25 +9,21 @@ Stop mechanism
   ``rcon-cli save-all`` and ``rcon-cli stop`` *before* compose down runs,
   so the server process flushes world data cleanly.
 
-New role startup
-----------------
-- If ``answers.yml`` exists → reuse it (no TUI prompt needed).
-- If missing → caller must supply an *answers* dict (collected by the TUI).
-  Passing ``answers=None`` with no existing file raises ``TransitionError``.
+Semantics (0.3.0)
+-----------------
+- ``mount`` is ADDITIVE: it starts exactly one module and never stops
+  the others.  Pre-flight validates the effective answers (declared
+  ranges) and the module's declared port claims against the mounted
+  set — a conflict refuses BEFORE anything is stopped.
+- ``dismount`` stops and freezes exactly one module (hooks, compose
+  down, its Caddy section); data and answers stay.
+- ``reconfigure`` applies new answers: live (down/up + Caddy section)
+  for a mounted module, answers-file-only for a dormant one.
+- ``switch`` is a deprecated alias of ``mount``.
 
-Full flow
----------
-Phase 1  Stop current role
-  pre_remove hooks  →  docker compose down  →  post_remove hooks
-
-Phase 2  Prepare new role
-  ensure data/ exists  →  save answers.yml  →  render docker-compose.yml
-
-Phase 3  Start new role
-  pre_apply hooks  →  docker compose up -d  →  Caddy update  →  post_apply hooks
-
-Phase 4  Persist state
-  update state.yml (active, activated_at, history)  →  release lock
+Answers are saved only after a successful mount, so a failed run never
+freezes a typo'd input.  All engine operations run under the atomic
+transition lock; Ctrl-C and SIGTERM roll the operation back.
 """
 
 from __future__ import annotations
@@ -37,7 +33,6 @@ import os
 import signal
 import subprocess
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Callable
 
 import yaml
@@ -45,23 +40,25 @@ import yaml
 from . import caddy as caddy_mod
 from . import lock as lock_mod
 from . import state as state_mod
+from .claims import find_conflicts, resolve_claims
 from .model import (
     PLATYPUS_ROLES_DIR,
     HistoryEntry,
     State,
     role_dir,
 )
-from .renderer import load_answers, render_compose, save_answers, write_compose
+from .renderer import load_answers, save_answers, write_compose
+from .validate import validate_answers
 
 Log = Callable[[str], None]
 
 
 class TransitionError(Exception):
-    """Raised when a role switch cannot be completed."""
+    """Raised when an engine operation cannot be completed."""
 
 
 class TransitionInterrupted(BaseException):
-    """A SIGTERM arrived mid-transition — roll back and re-raise."""
+    """A SIGTERM arrived mid-operation — roll back and re-raise."""
 
 
 @contextlib.contextmanager
@@ -81,11 +78,11 @@ def _interruptible():
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _load_template(role_name: str) -> dict:
+def _load_template(module_name: str) -> dict:
     try:
-        path = role_dir(role_name) / "template.yml"
+        path = role_dir(module_name) / "template.yml"
     except FileNotFoundError:
-        raise TransitionError(f"Role {role_name!r} not found") from None
+        raise TransitionError(f"Module {module_name!r} not found") from None
     with path.open(encoding="utf-8") as fh:
         return yaml.safe_load(fh) or {}
 
@@ -110,20 +107,20 @@ def _run_hooks(
             log(f"  ! hook exited {result.returncode}: {result.stderr.strip()}")
 
 
-def _compose_down(role_name: str, log: Log, strict: bool = False) -> None:
+def _compose_down(module_name: str, log: Log, strict: bool = False) -> None:
     """
-    Stop and remove containers for *role_name*.
+    Stop and remove containers for *module_name*.
 
     ``--volumes`` flag is intentionally omitted so Docker named volumes
     are preserved.  Bind-mounted ``./data`` dirs are unaffected regardless.
 
-    With ``strict=True`` a failing down raises (used in Phase 1 so a
-    stuck old stack aborts the switch); the default is best-effort
-    (used by rollback).
+    With ``strict=True`` a failing down raises (used in dismount and
+    reconfigure so a stuck stack aborts instead of lying); the default
+    is best-effort (used by rollback).
     """
-    compose_file = PLATYPUS_ROLES_DIR / role_name / "docker-compose.yml"
+    compose_file = PLATYPUS_ROLES_DIR / module_name / "docker-compose.yml"
     if not compose_file.exists():
-        log(f"  No compose file found for {role_name!r} — skipping down.")
+        log(f"  No compose file found for {module_name!r} — skipping down.")
         return
     log(f"  docker compose down  ({compose_file})")
     result = subprocess.run(
@@ -136,18 +133,17 @@ def _compose_down(role_name: str, log: Log, strict: bool = False) -> None:
     if result.returncode != 0:
         if strict:
             raise TransitionError(
-                f"docker compose down failed for {role_name!r} "
-                f"(exit {result.returncode}) — aborting before the new role "
-                "is prepared."
+                f"docker compose down failed for {module_name!r} "
+                f"(exit {result.returncode})."
             )
         log(f"  ! compose down exited {result.returncode} — continuing anyway.")
 
 
-def _compose_up(role_name: str, log: Log) -> None:
-    compose_file = PLATYPUS_ROLES_DIR / role_name / "docker-compose.yml"
+def _compose_up(module_name: str, log: Log) -> None:
+    compose_file = PLATYPUS_ROLES_DIR / module_name / "docker-compose.yml"
     if not compose_file.exists():
         raise TransitionError(
-            f"docker-compose.yml not found for {role_name!r}: {compose_file}"
+            f"docker-compose.yml not found for {module_name!r}: {compose_file}"
         )
     log(f"  docker compose up -d  ({compose_file})")
     result = subprocess.run(
@@ -163,94 +159,215 @@ def _compose_up(role_name: str, log: Log) -> None:
         )
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-def _single(state: State) -> str | None:
-    """The last-mounted module (v1 transitional helper; Task 6 removes it)."""
-    return state.mounted[-1] if state.mounted else None
-
-
-def switch(
-    new_role_name: str,
-    answers: dict[str, Any] | None = None,
-    log: Log = print,
-    force_unlock: bool = False,
+def _pre_flight(
+    module: str,
+    template: dict,
+    answers: dict[str, Any],
+    state: State,
+    skip_self: bool = False,
 ) -> None:
-    """
-    Switch the server to *new_role_name*.
+    """Validate answers and claims against the mounted set, BEFORE the
+    lock and before anything is stopped.  Raises TransitionError with an
+    actionable message pointing at ``platypus reconfigure``."""
+    questions = template.get("questions", [])
+    problems = validate_answers(questions, answers)
+    if problems:
+        raise TransitionError(
+            "invalid answers for "
+            f"{module!r} — " + "; ".join(problems)
+            + ".  Fix them with: platypus reconfigure " + module
+        )
 
-    Parameters
-    ----------
-    new_role_name:
-        Target role (must have a template.yml in the packaged roles dir).
-    answers:
-        User-provided answers dict (from TUI form).  If ``None``, the
-        existing ``answers.yml`` for the role is loaded.  If neither
-        exists, ``TransitionError`` is raised.
-    log:
-        Callable used for progress output (default: print).
-    force_unlock:
-        Steal a live transition lock held by another process.
-    """
-    state = state_mod.load()
-    prev_active = _single(state)
-
-    if new_role_name in state.mounted:
-        log(f"Module {new_role_name!r} is already mounted — nothing to do.")
-        return
-
-    # ------------------------------------------------------------------
-    # Validate new role + resolve answers before touching anything
-    # ------------------------------------------------------------------
-    log(f"\nLoading template: {new_role_name!r}")
-    new_template = _load_template(new_role_name)
-
-    if answers is None:
-        answers = load_answers(new_role_name)
-        if answers is None:
-            raise TransitionError(
-                f"No answers.yml found for {new_role_name!r} and no answers were "
-                "provided. Run the setup form first."
-            )
-        log(f"  Using existing answers.yml for {new_role_name!r}.")
-    else:
-        log(f"  Using newly collected answers for {new_role_name!r}.")
-
-    # ------------------------------------------------------------------
-    # Acquire the atomic transition lock (file-based, O_EXCL)
-    # ------------------------------------------------------------------
     try:
-        lock_info = lock_mod.acquire(new_role_name, force=force_unlock)
+        new_claims = resolve_claims(template, answers)
+    except (KeyError, ValueError) as exc:
+        raise TransitionError(
+            f"cannot resolve the port claims of {module!r}: {exc}"
+        ) from exc
+
+    mounted_claims: dict[str, set] = {}
+    for name in state.mounted:
+        if skip_self and name == module:
+            continue
+        try:
+            other_template = _load_template(name)
+            mounted_claims[name] = resolve_claims(
+                other_template, load_answers(name) or {}
+            )
+        except (TransitionError, KeyError, ValueError):
+            continue  # a broken OTHER module must not block this mount
+
+    conflicts = find_conflicts(module, new_claims, mounted_claims)
+    if conflicts:
+        raise TransitionError(
+            f"cannot mount {module!r} — " + "; ".join(conflicts)
+            + ".  Free the port (platypus dismount) or pick another with: "
+            "platypus reconfigure " + module
+        )
+
+
+def _acquire(module: str, force_unlock: bool, log: Log) -> None:
+    try:
+        lock_info = lock_mod.acquire(module, force=force_unlock)
     except lock_mod.LockError as exc:
         raise TransitionError(str(exc)) from exc
     if lock_info.get("stole_from") is not None:
         log(f"  Recovered stale lock (was PID {lock_info['stole_from']}).")
     log(f"Lock acquired (PID {lock_info['pid']})")
 
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+def mount(
+    new_module: str,
+    answers: dict[str, Any] | None = None,
+    log: Log = print,
+    force_unlock: bool = False,
+) -> None:
+    """Start exactly *new_module* additively; mounted modules keep running."""
+    state = state_mod.load()
+
+    if new_module in state.mounted:
+        log(f"Module {new_module!r} is already mounted — nothing to do.")
+        return
+
+    log(f"\nLoading template: {new_module!r}")
+    new_template = _load_template(new_module)
+
+    if answers is None:
+        answers = load_answers(new_module)
+        if answers is None:
+            raise TransitionError(
+                f"No answers.yml found for {new_module!r} and no answers were "
+                "provided. Run the setup form first."
+            )
+        log(f"  Using existing answers.yml for {new_module!r}.")
+    else:
+        log(f"  Using newly collected answers for {new_module!r}.")
+
+    _pre_flight(new_module, new_template, answers, state)
+    _acquire(new_module, force_unlock, log)
+
     try:
         with _interruptible():
-            _execute(state, new_role_name, new_template, answers, log)
+            _execute_mount(state, new_module, new_template, answers, log)
     except BaseException as exc:
         log(f"\n[ERROR] {type(exc).__name__}: {exc}")
-        log("Rolling back to previous role…")
-        # prev_active, not state.active: _execute may have mutated state
-        # before failing, and the wrong target would "restore" the NEW role.
-        with _interruptible():
-            _rollback(state, prev_active, new_role_name, log)
+        log("Rolling back the partial mount…")
+        _rollback_partial(new_module, log)
         raise (TransitionError(str(exc)) if isinstance(exc, Exception) else exc) from exc
     finally:
         lock_mod.release()
 
 
+def dismount(
+    module: str,
+    log: Log = print,
+    force_unlock: bool = False,
+) -> None:
+    """Stop and freeze exactly *module*; other mounted modules keep running."""
+    state = state_mod.load()
+
+    if module not in state.mounted:
+        raise TransitionError(f"Module {module!r} is not mounted.")
+
+    template = _load_template(module)
+    answers = load_answers(module)
+
+    _acquire(module, force_unlock, log)
+    now = datetime.now(timezone.utc)
+    try:
+        with _interruptible():
+            pre_remove = template.get("hooks", {}).get("pre_remove", [])
+            if pre_remove:
+                log("  pre_remove hooks:")
+                _run_hooks(pre_remove, log, answers=answers)
+
+            _compose_down(module, log, strict=True)
+
+            log("  Caddy config update:")
+            caddy_mod.remove_route(module, log)
+
+            post_remove = template.get("hooks", {}).get("post_remove", [])
+            if post_remove:
+                log("  post_remove hooks:")
+                _run_hooks(post_remove, log, answers=answers)
+
+            for entry in state.history:
+                if entry.role == module and entry.deactivated_at is None:
+                    entry.deactivated_at = now
+                    break
+            state.mounted.remove(module)
+            state_mod.save(state)
+            log(f"\n  ✓ Dismounted and frozen: {module!r}")
+    except BaseException as exc:
+        raise (TransitionError(str(exc)) if isinstance(exc, Exception) else exc) from exc
+    finally:
+        lock_mod.release()
+
+
+def reconfigure(
+    module: str,
+    answers: dict[str, Any] | None = None,
+    log: Log = print,
+    force_unlock: bool = False,
+) -> None:
+    """Apply new answers for *module*.
+
+    Mounted: validate (conflict-checked against the OTHER mounted
+    modules), then recreate the stack through the locked path — compose
+    re-render, down, up, Caddy section refresh.  Dormant: validate and
+    rewrite answers.yml only; nothing is started.
+    """
+    if answers is None:
+        raise TransitionError(
+            f"reconfigure {module!r} needs the form's answers — run it via "
+            "the CLI so the questions are collected first."
+        )
+
+    state = state_mod.load()
+    template = _load_template(module)
+    mounted = module in state.mounted
+
+    if not mounted:
+        _pre_flight(module, template, answers, state)
+        save_answers(module, answers)
+        log(f"  ✓ {module!r} is dormant — answers saved; applied at next mount.")
+        return
+
+    _pre_flight(module, template, answers, state, skip_self=True)
+    _acquire(module, force_unlock, log)
+    try:
+        with _interruptible():
+            write_compose(module, answers)
+            _compose_down(module, log, strict=True)
+            _compose_up(module, log)
+            log("  Caddy config update:")
+            caddy_mod.upsert_route(module, answers, log)
+            save_answers(module, answers)
+            log(f"\n  ✓ {module!r} reconfigured and restarted.")
+    except BaseException as exc:
+        log(f"\n[ERROR] {type(exc).__name__}: {exc}")
+        log("Rolling back the partial reconfigure…")
+        _rollback_partial(module, log)
+        raise (TransitionError(str(exc)) if isinstance(exc, Exception) else exc) from exc
+    finally:
+        lock_mod.release()
+
+
+#: Deprecated spelling of :func:`mount` — kept as a plain alias.
+switch = mount
+
+
 # ---------------------------------------------------------------------------
-# Execution phases
+# Execution / rollback
 # ---------------------------------------------------------------------------
 
-def _execute(
+def _execute_mount(
     state: State,
-    new_role: str,
+    new_module: str,
     new_template: dict,
     answers: dict[str, Any],
     log: Log,
@@ -258,145 +375,59 @@ def _execute(
     now = datetime.now(timezone.utc)
     _hr = "─" * 52
 
-    # ==================================================================
-    # PHASE 1 — Stop current module (transitional: the single mounted one)
-    # ==================================================================
-    if prev := _single(state):
-        cur = prev
-        log(f"\n{_hr}")
-        log(f"  Phase 1  Stopping: {cur!r}")
-        log(_hr)
-
-        cur_template = _load_template(cur)
-
-        # Load current role's answers for pre_remove hook interpolation
-        cur_answers = load_answers(cur)
-
-        pre_remove = cur_template.get("hooks", {}).get("pre_remove", [])
-        if pre_remove:
-            log("  pre_remove hooks:")
-            _run_hooks(pre_remove, log, answers=cur_answers)
-
-        _compose_down(cur, log, strict=True)
-
-        post_remove = cur_template.get("hooks", {}).get("post_remove", [])
-        if post_remove:
-            log("  post_remove hooks:")
-            _run_hooks(post_remove, log, answers=cur_answers)
-
-        # Record deactivation in history
-        for entry in state.history:
-            if entry.role == cur and entry.deactivated_at is None:
-                entry.deactivated_at = now
-                break
-
-    # ==================================================================
-    # PHASE 2 — Prepare new role
-    # ==================================================================
     log(f"\n{_hr}")
-    log(f"  Phase 2  Preparing: {new_role!r}")
+    log(f"  Mounting: {new_module!r}")
     log(_hr)
 
     # data/ bind-mount dir — never deleted
-    data_dir = PLATYPUS_ROLES_DIR / new_role / "data"
+    data_dir = PLATYPUS_ROLES_DIR / new_module / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     log(f"  data dir  {data_dir}  ✓")
 
     # Render compose from the in-memory answers.  answers.yml is only
-    # persisted in Phase 4, so a failed switch never freezes a bad input.
-    compose_file = write_compose(new_role, answers)
+    # persisted at the end, so a failed mount never freezes a bad input.
+    compose_file = write_compose(new_module, answers)
     log(f"  compose   {compose_file}  ✓")
-
-    # ==================================================================
-    # PHASE 3 — Start new role
-    # ==================================================================
-    log(f"\n{_hr}")
-    log(f"  Phase 3  Starting: {new_role!r}")
-    log(_hr)
 
     pre_apply = new_template.get("hooks", {}).get("pre_apply", [])
     if pre_apply:
         log("  pre_apply hooks:")
         _run_hooks(pre_apply, log, answers=answers)
 
-    _compose_up(new_role, log)
+    _compose_up(new_module, log)
 
-    # Caddy — add the new module's route section
     log("  Caddy config update:")
-    caddy_mod.upsert_route(new_role, answers, log)
+    caddy_mod.upsert_route(new_module, answers, log)
 
     post_apply = new_template.get("hooks", {}).get("post_apply", [])
     if post_apply:
         log("  post_apply hooks:")
         _run_hooks(post_apply, log, answers=answers)
 
-    # ==================================================================
-    # PHASE 4 — Persist state
-    # ==================================================================
-    save_answers(new_role, answers)   # only now: the switch succeeded
+    save_answers(new_module, answers)   # only now: the mount succeeded
     state.history.append(
-        HistoryEntry(role=new_role, activated_at=now, deactivated_at=None)
+        HistoryEntry(role=new_module, activated_at=now, deactivated_at=None)
     )
-    state.mounted = [new_role]  # transitional single-module semantics
+    state.mounted.append(new_module)
     state_mod.save(state)
 
     log(f"\n{'═' * 52}")
-    log(f"  ✓ Active role: {new_role!r}")
-    log(
-        f"    Switched from {state.history[-2].role!r}"
-        if len(state.history) >= 2
-        else f"    First activation at {now.strftime('%Y-%m-%d %H:%M UTC')}"
-    )
+    log(f"  ✓ Mounted: {new_module!r}   ({len(state.mounted)} module(s) mounted)")
     log(f"{'═' * 52}")
 
 
-def _rollback(state: State, prev_active: str | None, new_role: str, log: Log) -> None:
-    """Undo a failed or interrupted switch as far as it got.
+def _rollback_partial(new_module: str, log: Log) -> None:
+    """Remove the partially started stack and its Caddy section.
 
-    *prev_active* is the role that was active before the switch (captured
-    by the caller — never the possibly-mutated ``state.active``).
-
-    Order: remove the partially started new stack, restore the old
-    role's Caddy route, run the old role's ``rollback`` hooks (undoing
-    damage its ``pre_remove`` did, e.g. Nextcloud's maintenance mode),
-    and restart the old stack.  Every step is guarded: a second Ctrl-C,
-    a SIGTERM, or a broken dependency inside rollback is logged and the
-    NEXT step still runs — rollback itself never raises.
+    Every step is guarded: a second Ctrl-C, a SIGTERM, or a broken
+    dependency is logged and the NEXT step still runs — the rollback
+    itself never raises.  Mounted modules are never touched.
     """
-    try:
-        _compose_down(new_role, log)
-    except BaseException as exc:
-        log(f"  ! rollback: compose down of {new_role!r} failed: {exc}")
-
-    if not prev_active:
-        log("  No previous role to restore.")
-        return
-    old = prev_active
-
-    try:
-        old_answers = load_answers(old)
-    except Exception as exc:
-        log(f"  ! rollback: could not load answers for {old!r}: {exc}")
-        old_answers = None
-
-    try:
-        caddy_mod.upsert_route(old, old_answers or {}, log)
-    except BaseException as exc:
-        log(f"  ! Caddy route restore failed: {exc}")
-
-    try:
-        rollback_cmds = _load_template(old).get("hooks", {}).get("rollback", [])
-    except Exception as exc:
-        log(f"  ! Could not load rollback hooks for {old!r}: {exc}")
-        rollback_cmds = []
-    log("  rollback hooks:")
-    try:
-        _run_hooks(rollback_cmds, log, answers=old_answers)
-    except BaseException as exc:
-        log(f"  ! rollback hooks failed: {exc}")
-
-    try:
-        _compose_up(old, log)
-        log(f"  ✓ {old!r} restored.")
-    except BaseException as exc:
-        log(f"  ! Rollback failed to restart {old!r}: {exc}")
+    for step in (
+        lambda: _compose_down(new_module, log),
+        lambda: caddy_mod.remove_route(new_module, log),
+    ):
+        try:
+            step()
+        except BaseException as exc:
+            log(f"  ! rollback step failed: {exc}")

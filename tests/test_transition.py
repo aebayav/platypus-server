@@ -1,4 +1,4 @@
-"""Transition engine tests — no Docker, subprocess calls are faked."""
+"""Mount/dismount engine tests — no Docker, subprocess calls are faked."""
 
 import subprocess
 from types import SimpleNamespace
@@ -23,118 +23,242 @@ def _fake_procs(monkeypatch, results=None):
     return seen
 
 
-def _blank_state():
+def _state(mounted):
     return transition.state_mod.State(
-        schema_version="2", mounted=[], history=[])
+        schema_version="2", mounted=list(mounted), history=[])
 
 
-def test_switch_lock_error_becomes_transition_error(tmp_path, monkeypatch):
+def _no_save(monkeypatch):
+    saves = []
+    monkeypatch.setattr(transition.state_mod, "save", lambda st: saves.append(1))
+    return saves
+
+
+# ---------------------------------------------------------------------------
+# mount — additive, pre-flighted, locked
+# ---------------------------------------------------------------------------
+
+def test_mount_is_additive(tmp_path, monkeypatch):
+    monkeypatch.setattr(transition.state_mod, "load", lambda: _state(["pihole"]))
+    monkeypatch.setattr(transition, "load_answers", lambda name: {"a": 1})
+    monkeypatch.setattr(transition, "write_compose",
+                        lambda role, answers: tmp_path / "c.yml")
+    monkeypatch.setattr(transition, "save_answers", lambda role, answers: None)
+    monkeypatch.setattr(transition, "_run_hooks", lambda c, l, answers=None: None)
+    monkeypatch.setattr(transition, "_compose_up", lambda role, log: None)
+    monkeypatch.setattr(transition.caddy_mod, "upsert_route",
+                        lambda m, a, log: None)
+    saved_states = []
+    monkeypatch.setattr(
+        transition.state_mod, "save", lambda st: saved_states.append(st)
+    )
+
+    transition.mount("syncthing", log=lambda m: None)
+
+    assert saved_states[0].mounted == ["pihole", "syncthing"]
+
+
+def test_mount_lock_error_becomes_transition_error(tmp_path, monkeypatch):
     monkeypatch.setattr(lock, "LOCK_PATH", tmp_path / "transition.lock")
     lock.acquire("other-role")
-    monkeypatch.setattr(transition.state_mod, "load", _blank_state)
-    monkeypatch.setattr(transition, "_execute", lambda *a, **k: None)
+    monkeypatch.setattr(transition.state_mod, "load", lambda: _state([]))
+    monkeypatch.setattr(transition, "load_answers", lambda name: {"a": 1})
     with pytest.raises(TransitionError) as exc:
-        transition.switch("minecraft-server", answers={"a": 1})
+        transition.mount("minecraft-server", log=lambda m: None)
     assert "--force-unlock" in str(exc.value)
 
 
-def test_switch_releases_lock_on_success(tmp_path, monkeypatch):
-    monkeypatch.setattr(lock, "LOCK_PATH", tmp_path / "transition.lock")
-    monkeypatch.setattr(transition.state_mod, "STATE_FILE", tmp_path / "state.yml")
-    saves = []
-    monkeypatch.setattr(transition.state_mod, "save", lambda st: saves.append(1))
-    seen = _fake_procs(monkeypatch)
-    monkeypatch.setattr(transition.state_mod, "load", _blank_state)
-    monkeypatch.setattr(transition, "_execute", lambda *a, **k: None)
-    transition.switch("minecraft-server", answers={"a": 1}, log=lambda m: None)
-    assert not lock.LOCK_PATH.exists()
-    assert saves == []  # no state.yml lock writes while _execute is faked
-    assert seen == []  # _execute faked: no docker touched
-
-
-def test_rollback_composition(tmp_path, monkeypatch):
-    state = transition.state_mod.State(
-        schema_version="2", mounted=["pihole"], history=[])
-    order = []
-    monkeypatch.setattr(transition, "load_answers", lambda r: {"x": 1})
-    monkeypatch.setattr(transition, "_compose_down",
-                        lambda role, log, strict=False: order.append(("down", role)))
-    monkeypatch.setattr(transition.caddy_mod, "upsert_route",
-                        lambda role, answers, log: order.append(("caddy", role)))
-    monkeypatch.setattr(transition, "_compose_up",
-                        lambda role, log: order.append(("up", role)))
-    monkeypatch.setattr(transition, "_run_hooks",
-                        lambda cmds, log, answers=None: order.append(("hooks", list(cmds))))
-
-    transition._rollback(state, "pihole", "minecraft-server", lambda m: None)
-
-    assert order == [
-        ("down", "minecraft-server"),   # partial new stack removed
-        ("caddy", "pihole"),             # old route restored
-        ("hooks", transition._load_template("pihole").get("hooks", {}).get("rollback", [])),
-        ("up", "pihole"),                # old stack restored
-    ]
-
-
-def test_rollback_step_failure_continues(tmp_path, monkeypatch):
-    state = transition.state_mod.State(
-        schema_version="2", mounted=["pihole"], history=[])
-    order = []
-    monkeypatch.setattr(transition, "load_answers", lambda r: {"x": 1})
-    monkeypatch.setattr(transition, "_compose_down",
-                        lambda role, log, strict=False: order.append(("down", role)))
-    monkeypatch.setattr(transition.caddy_mod, "upsert_route",
-                        lambda role, answers, log: (_ for _ in ()).throw(KeyboardInterrupt()))
-    monkeypatch.setattr(transition, "_run_hooks",
-                        lambda cmds, log, answers=None: order.append(("hooks", list(cmds))))
-    monkeypatch.setattr(transition, "_compose_up",
-                        lambda role, log: order.append(("up", role)))
-
-    transition._rollback(state, "pihole", "minecraft-server", lambda m: None)
-
-    # A second Ctrl-C during rollback must not abort the remaining steps.
-    assert order == [("down", "minecraft-server"), ("hooks", []), ("up", "pihole")]
-
-
-def test_rollback_targets_previous_role_when_save_fails(tmp_path, monkeypatch):
-    monkeypatch.setattr(lock, "LOCK_PATH", tmp_path / "transition.lock")
-    monkeypatch.setattr(transition, "PLATYPUS_ROLES_DIR", tmp_path / "roles")
-    monkeypatch.setattr(transition.state_mod, "load", lambda: transition.state_mod.State(
-        schema_version="2", mounted=["jellyfin"], history=[]))
-    calls = []
-    monkeypatch.setattr(transition, "_rollback",
-                        lambda s, prev, new, log: calls.append((prev, new)))
-    monkeypatch.setattr(transition, "write_compose", lambda role, answers: tmp_path / "c.yml")
-    monkeypatch.setattr(transition, "save_answers", lambda role, answers: tmp_path / "a.yml")
+def test_mount_releases_lock_on_success(tmp_path, monkeypatch):
+    monkeypatch.setattr(transition.state_mod, "load", lambda: _state([]))
+    monkeypatch.setattr(transition, "load_answers", lambda name: {"a": 1})
+    monkeypatch.setattr(transition, "write_compose",
+                        lambda role, answers: tmp_path / "c.yml")
+    monkeypatch.setattr(transition, "save_answers", lambda role, answers: None)
+    monkeypatch.setattr(transition, "_run_hooks", lambda c, l, answers=None: None)
     monkeypatch.setattr(transition, "_compose_up", lambda role, log: None)
-    monkeypatch.setattr(transition.caddy_mod, "upsert_route", lambda role, answers, log: None)
+    monkeypatch.setattr(transition.caddy_mod, "upsert_route",
+                        lambda m, a, log: None)
+    monkeypatch.setattr(transition.state_mod, "save", lambda st: None)
 
-    def explode(state):
-        raise RuntimeError("disk full")
+    transition.mount("minecraft-server", log=lambda m: None)
 
-    monkeypatch.setattr(transition.state_mod, "save", explode)
+    assert not lock.LOCK_PATH.exists()
+
+
+def test_mount_conflict_refuses_before_lock(tmp_path, monkeypatch):
+    monkeypatch.setattr(lock, "LOCK_PATH", tmp_path / "transition.lock")
+    monkeypatch.setattr(transition.state_mod, "load", lambda: _state(["pihole"]))
+
+    TEMPLATES = {
+        "pihole": {"ports": ["53/tcp"]},
+        "jellyfin": {"ports": ["53/tcp"]},  # collides with mounted pihole
+    }
+    monkeypatch.setattr(transition, "_load_template",
+                        lambda name: TEMPLATES[name])
+    monkeypatch.setattr(transition, "load_answers", lambda name: {"a": 1})
+
+    with pytest.raises(TransitionError) as exc:
+        transition.mount("jellyfin", log=lambda m: None)
+
+    assert "pihole" in str(exc.value)
+    assert "reconfigure" in str(exc.value)
+    assert not lock.LOCK_PATH.exists()  # refused BEFORE the lock
+
+
+def test_mount_invalid_answers_refused(tmp_path, monkeypatch):
+    monkeypatch.setattr(lock, "LOCK_PATH", tmp_path / "transition.lock")
+    monkeypatch.setattr(transition.state_mod, "load", lambda: _state([]))
+    template = {
+        "questions": [
+            {"id": "web_port", "type": "integer", "validate": "1024-65535"}
+        ]
+    }
+    monkeypatch.setattr(transition, "_load_template", lambda name: template)
+
+    with pytest.raises(TransitionError) as exc:
+        transition.mount("jellyfin", answers={"web_port": 53}, log=lambda m: None)
+
+    assert "web_port" in str(exc.value)
+    assert "reconfigure" in str(exc.value)
+    assert not lock.LOCK_PATH.exists()
+
+
+def test_mount_failure_rolls_back_partial_only(tmp_path, monkeypatch):
+    monkeypatch.setattr(transition.state_mod, "load", lambda: _state(["pihole"]))
+    monkeypatch.setattr(transition, "load_answers", lambda name: {"a": 1})
+    monkeypatch.setattr(transition, "write_compose",
+                        lambda role, answers: tmp_path / "c.yml")
+    monkeypatch.setattr(transition, "save_answers", lambda role, answers: None)
+    monkeypatch.setattr(transition, "_run_hooks", lambda c, l, answers=None: None)
+    downs = []
+    monkeypatch.setattr(
+        transition, "_compose_down",
+        lambda role, log, strict=False: downs.append(role),
+    )
+    removes = []
+    monkeypatch.setattr(transition.caddy_mod, "remove_route",
+                        lambda m, log: removes.append(m))
+    monkeypatch.setattr(
+        transition, "_compose_up",
+        lambda role, log: (_ for _ in ()).throw(TransitionError("up failed")),
+    )
+    saves = _no_save(monkeypatch)
 
     with pytest.raises(TransitionError):
-        transition.switch("minecraft-server", answers={"a": 1}, log=lambda m: None)
+        transition.mount("syncthing", log=lambda m: None)
 
-    # Rollback must restore the role active BEFORE the switch mutated state.
-    assert calls == [("jellyfin", "minecraft-server")]
+    assert downs == ["syncthing"]        # the PARTIAL new stack downed
+    assert removes == ["syncthing"]      # its caddy section removed
+    assert saves == []                   # mounted set never persisted
 
 
 def test_keyboard_interrupt_rolls_back_and_releases(tmp_path, monkeypatch):
     monkeypatch.setattr(lock, "LOCK_PATH", tmp_path / "transition.lock")
-    monkeypatch.setattr(transition.state_mod, "load", _blank_state)
+    monkeypatch.setattr(transition.state_mod, "load", lambda: _state([]))
+    monkeypatch.setattr(transition, "load_answers", lambda name: {"a": 1})
     rolled = []
-    monkeypatch.setattr(transition, "_execute",
-                        lambda *a, **k: (_ for _ in ()).throw(KeyboardInterrupt()))
-    monkeypatch.setattr(transition, "_rollback", lambda s, prev, r, log: rolled.append(r))
+    monkeypatch.setattr(transition, "_rollback_partial",
+                        lambda m, log: rolled.append(m))
+    monkeypatch.setattr(
+        transition, "_execute_mount",
+        lambda *a, **k: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
 
     with pytest.raises(KeyboardInterrupt):
-        transition.switch("minecraft-server", answers={"a": 1}, log=lambda m: None)
+        transition.mount("minecraft-server", log=lambda m: None)
 
     assert rolled == ["minecraft-server"]
     assert not lock.LOCK_PATH.exists()
 
+
+def test_switch_is_alias_of_mount():
+    assert transition.switch is transition.mount
+
+
+# ---------------------------------------------------------------------------
+# dismount — freezes exactly one module
+# ---------------------------------------------------------------------------
+
+def test_dismount_freezes_exactly_one(tmp_path, monkeypatch):
+    monkeypatch.setattr(transition.state_mod, "load",
+                        lambda: _state(["pihole", "syncthing"]))
+    monkeypatch.setattr(transition, "load_answers", lambda name: {"n": name})
+    monkeypatch.setattr(transition, "_run_hooks", lambda c, l, answers=None: None)
+    downs = []
+    monkeypatch.setattr(
+        transition, "_compose_down",
+        lambda role, log, strict=False: downs.append((role, strict)),
+    )
+    removes = []
+    monkeypatch.setattr(transition.caddy_mod, "remove_route",
+                        lambda m, log: removes.append(m))
+    saved_states = []
+    monkeypatch.setattr(
+        transition.state_mod, "save", lambda st: saved_states.append(st)
+    )
+
+    transition.dismount("pihole", log=lambda m: None)
+
+    assert downs == [("pihole", True)]     # strict stop of exactly this one
+    assert removes == ["pihole"]           # only its caddy section
+    assert saved_states[0].mounted == ["syncthing"]
+
+
+def test_dismount_refuses_unmounted(tmp_path, monkeypatch):
+    monkeypatch.setattr(transition.state_mod, "load", lambda: _state(["pihole"]))
+    with pytest.raises(TransitionError):
+        transition.dismount("jellyfin", log=lambda m: None)
+
+
+# ---------------------------------------------------------------------------
+# reconfigure — live-apply mounted, answers-only dormant
+# ---------------------------------------------------------------------------
+
+def test_reconfigure_dormant_rewrites_answers_only(tmp_path, monkeypatch):
+    monkeypatch.setattr(lock, "LOCK_PATH", tmp_path / "transition.lock")
+    monkeypatch.setattr(transition.state_mod, "load", lambda: _state([]))
+    template = {"questions": []}
+    monkeypatch.setattr(transition, "_load_template", lambda name: template)
+    saved = []
+    monkeypatch.setattr(transition, "save_answers",
+                        lambda role, answers: saved.append((role, answers)))
+
+    transition.reconfigure("syncthing", answers={"web_port": 8300},
+                           log=lambda m: None)
+
+    assert saved == [("syncthing", {"web_port": 8300})]
+    assert not lock.LOCK_PATH.exists()  # dormant: no lock, nothing started
+
+
+def test_reconfigure_mounted_recreates_stack(tmp_path, monkeypatch):
+    monkeypatch.setattr(transition.state_mod, "load", lambda: _state(["pihole"]))
+    template = {"questions": []}
+    monkeypatch.setattr(transition, "_load_template", lambda name: template)
+    monkeypatch.setattr(transition, "load_answers", lambda name: {"web_port": 8080})
+    ops = []
+    monkeypatch.setattr(transition, "write_compose",
+                        lambda role, answers: ops.append(("write", role)) or tmp_path / "c.yml")
+    monkeypatch.setattr(
+        transition, "_compose_down",
+        lambda role, log, strict=False: ops.append(("down", role)),
+    )
+    monkeypatch.setattr(transition, "_compose_up",
+                        lambda role, log: ops.append(("up", role)))
+    monkeypatch.setattr(transition.caddy_mod, "upsert_route",
+                        lambda m, a, log: ops.append(("caddy", m)))
+    monkeypatch.setattr(transition, "save_answers",
+                        lambda role, answers: ops.append(("answers", role)))
+
+    transition.reconfigure("pihole", answers={"web_port": 8081}, log=lambda m: None)
+
+    assert ops == [("write", "pihole"), ("down", "pihole"),
+                   ("up", "pihole"), ("caddy", "pihole"), ("answers", "pihole")]
+    assert not lock.LOCK_PATH.exists()
+
+
+# ---------------------------------------------------------------------------
+# compose helpers
+# ---------------------------------------------------------------------------
 
 def test_compose_down_strict_raises(tmp_path, monkeypatch):
     import subprocess as sp
@@ -154,24 +278,3 @@ def test_compose_down_strict_raises(tmp_path, monkeypatch):
     with pytest.raises(TransitionError):
         transition._compose_down("minecraft-server", logs.append, strict=True)
     transition._compose_down("minecraft-server", logs.append, strict=False)  # no raise
-
-
-def test_answers_saved_only_after_success(tmp_path, monkeypatch):
-    monkeypatch.setattr(transition.state_mod, "load", _blank_state)
-    saved = []
-    ups = []
-    monkeypatch.setattr(transition, "save_answers",
-                        lambda role, answers: saved.append(role) or tmp_path / "answers.yml")
-    monkeypatch.setattr(transition, "write_compose",
-                        lambda role, answers: tmp_path / "docker-compose.yml")
-    monkeypatch.setattr(transition, "_run_hooks",
-                        lambda cmds, log, answers=None: None)
-    monkeypatch.setattr(transition, "_compose_up",
-                        lambda role, log: ups.append(role)
-                        or (_ for _ in ()).throw(transition.TransitionError("up failed")))
-
-    with pytest.raises(transition.TransitionError):
-        transition.switch("minecraft-server", answers={"a": 1}, log=lambda m: None)
-
-    assert ups == ["minecraft-server"]  # Phase 3 was actually reached
-    assert saved == []  # typo'd answers from a failed switch are NOT persisted
