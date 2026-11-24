@@ -270,6 +270,19 @@ def mount(
     _pre_flight(new_module, new_template, answers, state, log)
     _acquire(new_module, force_unlock, log)
 
+    # The mounted set may have changed while we waited for the lock:
+    # re-read it and re-check before mutating anything.
+    state = state_mod.load()
+    if new_module in state.mounted:
+        log(f"Module {new_module!r} is already mounted — nothing to do.")
+        lock_mod.release()
+        return
+    try:
+        _pre_flight(new_module, new_template, answers, state, log)
+    except TransitionError:
+        lock_mod.release()
+        raise
+
     try:
         with _interruptible():
             _execute_mount(state, new_module, new_template, answers, log)
@@ -280,6 +293,39 @@ def mount(
         raise (TransitionError(str(exc)) if isinstance(exc, Exception) else exc) from exc
     finally:
         lock_mod.release()
+
+
+def _restore_module(
+    module: str,
+    old_answers: dict[str, Any] | None,
+    state: State,
+    log: Log,
+) -> None:
+    """Best-effort restore of the previously running configuration.
+
+    Phase-1 parity: re-render with the OLD answers, restart the stack,
+    re-add its Caddy section.  If the restore itself fails, the module
+    is de facto dismounted — reflect that in the state (so status tells
+    the truth) and name the recovery command.  Never raises.
+    """
+    try:
+        write_compose(module, old_answers or {})
+        _compose_up(module, log)
+        caddy_mod.upsert_route(module, old_answers or {}, log)
+        log(f"  ✓ {module!r} restored to its previous configuration.")
+        return
+    except BaseException as exc:
+        log(f"  ! could not restore {module!r}: {exc}")
+
+    try:
+        state.mounted.remove(module)
+        state_mod.save(state)
+    except Exception as exc:
+        log(f"  ! could not persist the dismounted state: {exc}")
+    log(
+        f"  ⚠ {module!r} left DISMOUNTED (its previous stack could not be "
+        f"restored).  Remount it with: platypus mount {module}"
+    )
 
 
 def dismount(
@@ -297,9 +343,13 @@ def dismount(
     answers = load_answers(module)
 
     _acquire(module, force_unlock, log)
+    # Another operation may have changed the set while we waited.
+    state = state_mod.load()
     now = datetime.now(timezone.utc)
     try:
         with _interruptible():
+            if module not in state.mounted:
+                raise TransitionError(f"Module {module!r} is not mounted.")
             pre_remove = template.get("hooks", {}).get("pre_remove", [])
             if pre_remove:
                 log("  pre_remove hooks:")
@@ -323,6 +373,15 @@ def dismount(
             state_mod.save(state)
             log(f"\n  ✓ Dismounted and frozen: {module!r}")
     except BaseException as exc:
+        # The module's pre_remove may have done damage (e.g. Nextcloud's
+        # maintenance:mode --on); its rollback: hooks undo it, best-effort.
+        try:
+            rollback_cmds = template.get("hooks", {}).get("rollback", [])
+            if rollback_cmds:
+                log("  rollback hooks:")
+                _run_hooks(rollback_cmds, log, answers=answers)
+        except BaseException as hook_exc:
+            log(f"  ! rollback hooks failed: {hook_exc}")
         raise (TransitionError(str(exc)) if isinstance(exc, Exception) else exc) from exc
     finally:
         lock_mod.release()
@@ -359,6 +418,15 @@ def reconfigure(
 
     _pre_flight(module, template, answers, state, log, skip_self=True)
     _acquire(module, force_unlock, log)
+    # Another operation may have changed the set while we waited.
+    state = state_mod.load()
+    if module not in state.mounted:
+        lock_mod.release()
+        raise TransitionError(
+            f"Module {module!r} is no longer mounted — nothing to "
+            "reconfigure.  Mount it first: platypus mount {module}"
+        )
+    old_answers = load_answers(module)  # the configuration to restore on failure
     try:
         with _interruptible():
             write_compose(module, answers)
@@ -370,8 +438,8 @@ def reconfigure(
             log(f"\n  ✓ {module!r} reconfigured and restarted.")
     except BaseException as exc:
         log(f"\n[ERROR] {type(exc).__name__}: {exc}")
-        log("Rolling back the partial reconfigure…")
-        _rollback_partial(module, log)
+        log("Rolling back to the previous configuration…")
+        _restore_module(module, old_answers, state, log)
         raise (TransitionError(str(exc)) if isinstance(exc, Exception) else exc) from exc
     finally:
         lock_mod.release()
