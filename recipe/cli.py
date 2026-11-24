@@ -20,6 +20,7 @@ from . import lock as lock_mod
 from .model import PLATYPUS_ROLES_DIR, role_dir
 from .renderer import load_answers, save_answers
 from .transition import TransitionError, TransitionInterrupted, switch
+from .validate import check_answer
 
 
 # ---------------------------------------------------------------------------
@@ -80,6 +81,14 @@ def _collect_answers(role_name: str) -> dict[str, Any]:
                     value = int(value)
                 except ValueError:
                     print("    ✗ Please enter a whole number.")
+                    continue
+                # Enforce the declared validate range (previously dead).
+                check_msg = check_answer(
+                    {"id": qid, "type": qtype, "validate": q.get("validate")},
+                    value,
+                )
+                if check_msg:
+                    print(f"    ✗ {check_msg}")
                     continue
             elif qtype == "confirm":
                 if isinstance(value, bool):
