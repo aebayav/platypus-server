@@ -337,9 +337,19 @@ function drawSparkline(canvasId, data, color="#4da3ff") {
   ctx.fillStyle=color+"20"; ctx.fill();
 }
 
-/* 401 redirect interceptor */
+/* 401 redirect + CSRF header interceptor */
+function _readCsrfCookie() {
+  const m = document.cookie.match(/(?:^|;\s*)platypus_csrf=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : "";
+}
 async function apiFetch(url, opts={}) {
-  const res=await fetch(url,opts);
+  const method = (opts.method || "GET").toUpperCase();
+  const headers = Object.assign({}, opts.headers || {});
+  if (method !== "GET" && method !== "HEAD") {
+    const csrf = _readCsrfCookie();
+    if (csrf) headers["X-CSRF-Token"] = csrf;
+  }
+  const res=await fetch(url, Object.assign({}, opts, {headers}));
   if(res.status===401){window.location.href="/login";return null;}
   return res;
 }

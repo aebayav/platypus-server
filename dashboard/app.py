@@ -14,10 +14,15 @@ from flask import Flask, jsonify, redirect, request, send_from_directory, sessio
 from . import compose, dockerctl, firewall, metrics, systemd
 from . import __version__ as _DASHBOARD_VERSION
 from .auth import (
-    USING_DEFAULT_CREDENTIALS,
     check_credentials,
+    clear_login_failures,
+    ensure_csrf_token,
+    get_secret_key,
     is_authenticated,
+    is_rate_limited,
     login_required,
+    record_login_failure,
+    using_default_credentials,
 )
 from .services import get_services
 
@@ -26,8 +31,10 @@ from .services import get_services
 # ---------------------------------------------------------------------------
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
-app.secret_key = os.environ.get(
-    "DASHBOARD_SECRET_KEY", "platypus-dashboard-secret-change-me"
+app.secret_key = get_secret_key()
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
 )
 
 # Record the start time for the /health uptime field.
@@ -158,13 +165,23 @@ def login_page():
 
 @app.post("/api/login")
 def api_login():
+    client_ip = request.remote_addr or "unknown"
+    if is_rate_limited(client_ip):
+        return jsonify({"error": "Too many login attempts. Try again later."}), 429
+
     data = request.get_json(silent=True) or {}
     if check_credentials(
         (data.get("username") or "").strip(),
         (data.get("password") or ""),
     ):
+        clear_login_failures(client_ip)
         session["authenticated"] = True
-        return jsonify({"ok": True})
+        csrf_token = ensure_csrf_token()
+        resp = jsonify({"ok": True, "csrf_token": csrf_token})
+        resp.set_cookie("platypus_csrf", csrf_token, httponly=False, samesite="Lax")
+        return resp
+
+    record_login_failure(client_ip)
     return jsonify({"error": "Invalid credentials"}), 401
 
 
@@ -172,13 +189,18 @@ def api_login():
 @app.post("/api/logout")
 def api_logout():
     session.clear()
-    return redirect(url_for("login_page"))
+    resp = redirect(url_for("login_page"))
+    resp.delete_cookie("platypus_csrf")
+    return resp
 
 
 @app.get("/api/auth/info")
 def api_auth_info():
     """Public endpoint — returns whether default credentials are active."""
-    return jsonify({"default_credentials": USING_DEFAULT_CREDENTIALS})
+    payload: dict = {"default_credentials": using_default_credentials()}
+    if is_authenticated():
+        payload["csrf_token"] = ensure_csrf_token()
+    return jsonify(payload)
 
 # ---------------------------------------------------------------------------
 # Main page
@@ -187,7 +209,10 @@ def api_auth_info():
 @app.get("/")
 @login_required
 def index():
-    return send_from_directory(app.static_folder, "index.html")
+    csrf_token = ensure_csrf_token()
+    resp = send_from_directory(app.static_folder, "index.html")
+    resp.set_cookie("platypus_csrf", csrf_token, httponly=False, samesite="Lax")
+    return resp
 
 # ---------------------------------------------------------------------------
 # System metrics
@@ -421,12 +446,36 @@ def parse_dashboard_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=int(os.environ.get("DASHBOARD_PORT", "5050")),
         help="bind port (default: DASHBOARD_PORT env var, else 5050)",
     )
+    parser.add_argument(
+        "--hash-password",
+        metavar="PASSWORD",
+        help="print a DASHBOARD_PASSWORD_HASH string for PASSWORD and exit",
+    )
+    parser.add_argument(
+        "--dev",
+        action="store_true",
+        help="use Flask's built-in development server instead of Waitress WSGI",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_dashboard_args(argv)
-    app.run(host=args.host, port=args.port, debug=False)
+    if args.hash_password is not None:
+        from werkzeug.security import generate_password_hash
+
+        print(generate_password_hash(args.hash_password))
+        return
+
+    if not args.dev:
+        try:
+            import waitress
+
+            waitress.serve(app, host=args.host, port=args.port, threads=8)
+            return
+        except ImportError:
+            pass
+    app.run(host=args.host, port=args.port, debug=False, threaded=True)
 
 
 if __name__ == "__main__":
