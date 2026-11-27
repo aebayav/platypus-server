@@ -17,9 +17,9 @@ UFW_TASK = Task(
         Step(
             "Install firewall package",
             "if command -v dnf >/dev/null 2>&1; then dnf install -y firewalld; "
+            "elif command -v zypper >/dev/null 2>&1; then zypper --non-interactive install firewalld; "
             "elif command -v apt-get >/dev/null 2>&1; then apt-get update && apt-get install -y ufw; "
-            "elif command -v pacman >/dev/null 2>&1; then pacman -Sy --noconfirm ufw; "
-            "elif command -v zypper >/dev/null 2>&1; then zypper --non-interactive install ufw; "
+            "elif command -v pacman >/dev/null 2>&1; then pacman -S --noconfirm --needed ufw; "
             "elif command -v apk >/dev/null 2>&1; then apk add --no-cache ufw; fi",
         ),
         Step(

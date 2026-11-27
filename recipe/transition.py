@@ -33,6 +33,7 @@ import os
 import signal
 import subprocess
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable
 
 import yaml
@@ -87,12 +88,30 @@ def _load_template(module_name: str) -> dict:
         return yaml.safe_load(fh) or {}
 
 
+_ACTIVE_HOOK_CWD: Path | None = None
+
+
+@contextlib.contextmanager
+def _module_hook_cwd(module_name: str):
+    """Ensure hooks run with cwd set to the module's runtime directory."""
+    global _ACTIVE_HOOK_CWD
+    prev = _ACTIVE_HOOK_CWD
+    target_dir = PLATYPUS_ROLES_DIR / module_name
+    target_dir.mkdir(parents=True, exist_ok=True)
+    _ACTIVE_HOOK_CWD = target_dir
+    try:
+        yield target_dir
+    finally:
+        _ACTIVE_HOOK_CWD = prev
+
+
 def _run_hooks(
     commands: list[str],
     log: Log,
     answers: dict[str, Any] | None = None,
 ) -> None:
     """Run each hook command, optionally substituting {answers[key]} placeholders."""
+    run_cwd = str(_ACTIVE_HOOK_CWD) if _ACTIVE_HOOK_CWD is not None else None
     for cmd in commands:
         if answers:
             try:
@@ -100,7 +119,13 @@ def _run_hooks(
             except (KeyError, ValueError):
                 pass  # Leave command as-is if substitution fails
         log(f"  $ {cmd}")
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True)
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            cwd=run_cwd,
+        )
         for line in result.stdout.strip().splitlines():
             log(f"    {line}")
         if result.returncode != 0:
@@ -353,7 +378,8 @@ def dismount(
             pre_remove = template.get("hooks", {}).get("pre_remove", [])
             if pre_remove:
                 log("  pre_remove hooks:")
-                _run_hooks(pre_remove, log, answers=answers)
+                with _module_hook_cwd(module):
+                    _run_hooks(pre_remove, log, answers=answers)
 
             _compose_down(module, log, strict=True)
 
@@ -363,7 +389,8 @@ def dismount(
             post_remove = template.get("hooks", {}).get("post_remove", [])
             if post_remove:
                 log("  post_remove hooks:")
-                _run_hooks(post_remove, log, answers=answers)
+                with _module_hook_cwd(module):
+                    _run_hooks(post_remove, log, answers=answers)
 
             for entry in state.history:
                 if entry.role == module and entry.deactivated_at is None:
@@ -379,7 +406,8 @@ def dismount(
             rollback_cmds = template.get("hooks", {}).get("rollback", [])
             if rollback_cmds:
                 log("  rollback hooks:")
-                _run_hooks(rollback_cmds, log, answers=answers)
+                with _module_hook_cwd(module):
+                    _run_hooks(rollback_cmds, log, answers=answers)
         except BaseException as hook_exc:
             log(f"  ! rollback hooks failed: {hook_exc}")
         raise (TransitionError(str(exc)) if isinstance(exc, Exception) else exc) from exc
@@ -480,7 +508,8 @@ def _execute_mount(
     pre_apply = new_template.get("hooks", {}).get("pre_apply", [])
     if pre_apply:
         log("  pre_apply hooks:")
-        _run_hooks(pre_apply, log, answers=answers)
+        with _module_hook_cwd(new_module):
+            _run_hooks(pre_apply, log, answers=answers)
 
     _compose_up(new_module, log)
 
@@ -490,7 +519,8 @@ def _execute_mount(
     post_apply = new_template.get("hooks", {}).get("post_apply", [])
     if post_apply:
         log("  post_apply hooks:")
-        _run_hooks(post_apply, log, answers=answers)
+        with _module_hook_cwd(new_module):
+            _run_hooks(post_apply, log, answers=answers)
 
     save_answers(new_module, answers)   # only now: the mount succeeded
     state.history.append(

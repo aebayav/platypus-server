@@ -12,7 +12,8 @@ hooks:
   pre_remove: []
   post_remove: []
   pre_apply:
-    - "mkdir -p ./data/prometheus ./data/grafana"
+    - "mkdir -p ./data/prometheus ./data/prometheus-tsdb ./data/grafana"
+    - "chmod 0777 ./data/prometheus-tsdb ./data/grafana"
     - >-
       test -f ./data/prometheus/prometheus.yml || printf '%s\n'
       'global:'
@@ -20,7 +21,7 @@ hooks:
       'scrape_configs:'
       '  - job_name: platypus'
       '    static_configs:'
-      '      - targets: ["host.docker.internal:5050"]'
+      '      - targets: ["{answers[metrics_target]}"]'
       > ./data/prometheus/prometheus.yml
   post_apply:
     - "echo 'Grafana ready on port {answers[web_port]}; Prometheus on {answers[prometheus_port]}'"

@@ -5,7 +5,7 @@ package_upgrade: true
 users:
   - default
   - name: ${admin_user}
-    groups: [sudo, docker]
+    groups: [sudo]
     shell: /bin/bash
     sudo: "ALL=(ALL) NOPASSWD:ALL"
     ssh_authorized_keys:
@@ -21,4 +21,4 @@ runcmd:
   - curl -fsSL https://get.docker.com | sh
   - usermod -aG docker ${admin_user} || true
   - curl -fsSL https://raw.githubusercontent.com/aebayav/platypus-server/main/bootstrap.sh | env PLATYPUS_ENV=${platypus_env} PLATYPUS_TARGET=${platypus_target} bash
-  - bash -c 'if [ -s /etc/platypus/server.yml ]; then platypus apply -f /etc/platypus/server.yml; fi'
+  - bash -c 'export PATH="/usr/local/bin:$PATH"; if [ -s /etc/platypus/server.yml ]; then platypus apply -f /etc/platypus/server.yml; fi'

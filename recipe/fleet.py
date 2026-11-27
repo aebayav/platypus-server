@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import shlex
 import subprocess
 import sys
@@ -11,9 +12,20 @@ from typing import Any
 
 import yaml
 
+_SAFE_TOKEN_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@-]*$")
+_DOMAIN_RE = re.compile(r"^[A-Za-z0-9*][A-Za-z0-9.*-]{0,252}$")
+_HOST_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.:_-]*$")
+
 
 class FleetError(Exception):
     """Raised when a fleet inventory is invalid or an SSH operation fails."""
+
+
+def _run_ssh(cmd: list[str], input_text: str | None = None) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(cmd, input=input_text, capture_output=True, text=True)
+    except FileNotFoundError as exc:
+        raise FleetError("'ssh' client not found on PATH — install OpenSSH first.") from exc
 
 
 def load_fleet(path: Path) -> dict[str, Any]:
@@ -30,10 +42,19 @@ def load_fleet(path: Path) -> dict[str, Any]:
 
 def _ssh_base_cmd(node: dict[str, Any]) -> list[str]:
     host = str(node.get("host") or "").strip()
-    if not host:
-        raise FleetError("Node entry is missing 'host'")
+    if not host or not _HOST_RE.match(host):
+        raise FleetError(f"Invalid or unsafe node 'host': {host!r}")
     user = str(node.get("user") or "root").strip()
-    port = int(node.get("port") or 22)
+    if not _SAFE_TOKEN_RE.match(user):
+        raise FleetError(f"Invalid or unsafe node 'user': {user!r}")
+    raw_port = node.get("port", 22)
+    try:
+        port = int(raw_port)
+    except (TypeError, ValueError) as exc:
+        raise FleetError(f"Invalid SSH port {raw_port!r}: must be an integer") from exc
+    if not 1 <= port <= 65535:
+        raise FleetError(f"SSH port {port} out of range (1-65535)")
+
     return [
         "ssh",
         "-o",
@@ -42,6 +63,7 @@ def _ssh_base_cmd(node: dict[str, Any]) -> list[str]:
         "ConnectTimeout=5",
         "-p",
         str(port),
+        "--",
         f"{user}@{host}",
     ]
 
@@ -81,10 +103,19 @@ def render_tunnels(fleet_data: dict[str, Any]) -> dict[str, str]:
         domain = str(entry.get("domain") or "").strip()
         edge_name = str(entry.get("edge_node") or "").strip()
         origin_name = str(entry.get("origin_node") or "").strip()
-        origin_port = entry.get("origin_port")
+        raw_port = entry.get("origin_port")
 
-        if not (domain and edge_name and origin_name and origin_port):
+        if not (domain and edge_name and origin_name and raw_port is not None):
             raise FleetError(f"Incomplete tunnel definition: {entry!r}")
+        if not _DOMAIN_RE.match(domain):
+            raise FleetError(f"Invalid tunnel domain {domain!r}")
+        try:
+            origin_port = int(raw_port)
+        except (TypeError, ValueError) as exc:
+            raise FleetError(f"Invalid origin_port {raw_port!r}") from exc
+        if not 1 <= origin_port <= 65535:
+            raise FleetError(f"origin_port {origin_port} out of range (1-65535)")
+
         if edge_name not in nodes:
             raise FleetError(f"Tunnel references unknown edge_node {edge_name!r}")
         if origin_name not in nodes:
@@ -94,13 +125,16 @@ def render_tunnels(fleet_data: dict[str, Any]) -> dict[str, str]:
         upstream_ip = str(
             origin_cfg.get("tailscale_ip") or origin_cfg.get("host") or ""
         ).strip()
-        if not upstream_ip:
-            raise FleetError(f"Origin node {origin_name!r} has neither tailscale_ip nor host")
+        if not upstream_ip or not _HOST_RE.match(upstream_ip):
+            raise FleetError(
+                f"Origin node {origin_name!r} has invalid upstream address {upstream_ip!r}"
+            )
+        formatted_host = f"[{upstream_ip}]" if ":" in upstream_ip else upstream_ip
 
         block = (
-            f"# platypus-fleet tunnel: {domain} -> {origin_name} ({upstream_ip}:{origin_port})\n"
+            f"# platypus-fleet tunnel: {domain} -> {origin_name} ({formatted_host}:{origin_port})\n"
             f"{domain} {{\n"
-            f"    reverse_proxy {upstream_ip}:{int(origin_port)}\n"
+            f"    reverse_proxy {formatted_host}:{origin_port}\n"
             f"}}\n"
         )
         grouped.setdefault(edge_name, []).append(block)
@@ -118,7 +152,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
     failures = 0
     for name, cfg in targets:
         cmd = _ssh_base_cmd(cfg) + ["platypus status"]
-        res = subprocess.run(cmd, capture_output=True, text=True)
+        res = _run_ssh(cmd)
         status_tag = "ONLINE" if res.returncode == 0 else "UNREACHABLE"
         print(f"── {name} ({cfg.get('host')}) [{status_tag}] ──")
         if res.returncode == 0:
@@ -142,16 +176,19 @@ def _cmd_apply(args: argparse.Namespace) -> int:
     if not targets:
         raise FleetError("No matching nodes selected for apply")
 
-    remote_script = (
-        "tmp=$(mktemp /tmp/platypus-spec.XXXXXX.yml) && "
-        "trap 'rm -f \"$tmp\"' EXIT && "
-        "cat > \"$tmp\" && "
-        "platypus apply -f \"$tmp\""
-    )
     for name, cfg in targets:
+        user = str(cfg.get("user") or "root").strip()
+        priv = "" if user == "root" else "sudo -n "
+        remote_script = (
+            "tmp=$(mktemp /tmp/platypus-spec.XXXXXX) && "
+            "trap 'rm -f \"$tmp\"' EXIT && "
+            "cat > \"$tmp\" && "
+            "chmod 0644 \"$tmp\" && "
+            f"{priv}platypus apply -f \"$tmp\""
+        )
         print(f"Applying {spec_path.name} -> {name}...")
         cmd = _ssh_base_cmd(cfg) + [f"sh -c {shlex.quote(remote_script)}"]
-        res = subprocess.run(cmd, input=spec_content, capture_output=True, text=True)
+        res = _run_ssh(cmd, input_text=spec_content)
         if res.stdout.strip():
             print(res.stdout.strip())
         if res.returncode != 0:
@@ -174,12 +211,12 @@ def _cmd_tunnel(args: argparse.Namespace) -> int:
         print(caddy_text)
         if args.apply:
             remote_cmd = (
-                "sudo mkdir -p /opt/platypus/Caddyfile.d && "
-                "sudo tee /opt/platypus/Caddyfile.d/fleet-tunnels.conf >/dev/null && "
-                "(sudo caddy reload || sudo systemctl reload caddy || true)"
+                "sudo -n mkdir -p /opt/platypus/Caddyfile.d && "
+                "sudo -n tee /opt/platypus/Caddyfile.d/fleet-tunnels.conf >/dev/null && "
+                "(sudo -n systemctl reload caddy || sudo -n caddy reload)"
             )
             cmd = _ssh_base_cmd(nodes[edge_name]) + [f"sh -c {shlex.quote(remote_cmd)}"]
-            res = subprocess.run(cmd, input=caddy_text, capture_output=True, text=True)
+            res = _run_ssh(cmd, input_text=caddy_text)
             if res.returncode != 0:
                 raise FleetError(
                     f"Failed to apply tunnel config on {edge_name!r}: {(res.stderr or '').strip()}"

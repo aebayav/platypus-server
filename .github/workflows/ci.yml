@@ -5,6 +5,9 @@ on:
     branches: [main, master]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: Lint & static analysis
@@ -84,6 +87,8 @@ jobs:
           ansible-galaxy collection install -r requirements.yml -p collections
       - name: Run Molecule scenario
         working-directory: roles/${{ matrix.role }}
+        env:
+          ANSIBLE_COLLECTIONS_PATH: ${{ github.workspace }}/collections
         run: molecule test
 
   security_scan:
@@ -92,7 +97,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run Trivy filesystem & misconfig scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: "fs"
           scan-ref: "."

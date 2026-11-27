@@ -8,6 +8,8 @@ set -euo pipefail
 # Creates a virtual environment, installs Waitress + dashboard dependencies,
 # provisions a persistent random secret key in /etc/platypus/dashboard.env,
 # and binds to 127.0.0.1:5050 by default (use Caddy or Tailscale for remote access).
+# Note: running under unprivileged `platypus-dash` isolates the web process; set
+# DASHBOARD_SERVICE_USER=root only if you need privileged systemd/ufw mutations.
 
 if [ "$(id -u)" -ne 0 ]; then
     echo "Please run as root:  sudo $0" >&2
@@ -24,6 +26,11 @@ SERVICE_USER="${DASHBOARD_SERVICE_USER:-platypus-dash}"
 BIND_HOST="${DASHBOARD_HOST:-127.0.0.1}"
 BIND_PORT="${DASHBOARD_PORT:-5050}"
 
+PROTECT_HOME="true"
+case "$REPO_DIR" in
+    /home/*|/root|/root/*) PROTECT_HOME="false" ;;
+esac
+
 echo ">> Repo dir : $REPO_DIR"
 echo ">> venv      : $VENV"
 
@@ -32,10 +39,12 @@ if ! command -v python3 >/dev/null 2>&1; then
     exit 1
 fi
 
-if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
+mkdir -p /opt/platypus
+
+if [ "$SERVICE_USER" != "root" ] && ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
     useradd --system --no-create-home --shell /usr/sbin/nologin "$SERVICE_USER"
 fi
-if getent group docker >/dev/null 2>&1; then
+if [ "$SERVICE_USER" != "root" ] && getent group docker >/dev/null 2>&1; then
     usermod -aG docker "$SERVICE_USER" || true
 fi
 
@@ -81,9 +90,9 @@ Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
-ProtectHome=true
+ProtectHome=$PROTECT_HOME
 ProtectSystem=strict
-ReadWritePaths=/opt/platypus
+ReadWritePaths=-/opt/platypus
 
 [Install]
 WantedBy=multi-user.target

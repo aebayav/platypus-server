@@ -15,6 +15,7 @@ import yaml
 
 from . import state as state_mod, transition
 from .claims import Claim, find_conflicts, resolve_claims
+from .linter import _extract_placeholders
 from .model import role_dir
 from .renderer import load_answers
 from .validate import validate_answers
@@ -55,34 +56,36 @@ def _expand_env(obj: Any) -> Any:
     return obj
 
 
+def _decrypt_sops(path: Path) -> Any:
+    try:
+        res = subprocess.run(["sops", "-d", str(path)], capture_output=True, text=True)
+    except FileNotFoundError as exc:
+        raise GitOpsError("'sops' CLI not found on PATH — install sops to decrypt specs.") from exc
+    if res.returncode != 0:
+        raise GitOpsError(
+            f"sops decryption failed for {path}: {(res.stderr or '').strip()}"
+        )
+    try:
+        return yaml.safe_load(res.stdout)
+    except yaml.YAMLError as exc:
+        raise GitOpsError(f"Decrypted SOPS content is not valid YAML: {exc}") from exc
+
+
 def load_spec(path: Path) -> dict[str, Any]:
     """Load a declarative YAML spec, decrypting via ``sops -d`` if encrypted."""
     if not path.is_file():
         raise GitOpsError(f"Spec file not found: {path}")
 
-    raw_text = path.read_text(encoding="utf-8")
-    try:
-        initial = yaml.safe_load(raw_text)
-    except yaml.YAMLError as exc:
-        raise GitOpsError(f"Invalid YAML in {path}: {exc}") from exc
-
-    is_sops = path.name.endswith((".sops.yml", ".sops.yaml")) or (
-        isinstance(initial, dict) and "sops" in initial
-    )
-    if is_sops:
-        res = subprocess.run(
-            ["sops", "-d", str(path)],
-            capture_output=True,
-            text=True,
-        )
-        if res.returncode != 0:
-            raise GitOpsError(
-                f"sops decryption failed for {path}: {(res.stderr or '').strip()}"
-            )
+    if path.name.endswith((".sops.yml", ".sops.yaml")):
+        initial = _decrypt_sops(path)
+    else:
         try:
-            initial = yaml.safe_load(res.stdout)
-        except yaml.YAMLError as exc:
-            raise GitOpsError(f"Decrypted SOPS content is not valid YAML: {exc}") from exc
+            raw_text = path.read_text(encoding="utf-8")
+            initial = yaml.safe_load(raw_text)
+        except (UnicodeDecodeError, yaml.YAMLError) as exc:
+            raise GitOpsError(f"Invalid YAML in {path}: {exc}") from exc
+        if isinstance(initial, dict) and "sops" in initial:
+            initial = _decrypt_sops(path)
 
     if not isinstance(initial, dict):
         raise GitOpsError("Declarative spec must be a YAML mapping")
@@ -108,6 +111,63 @@ def _load_module_meta(module_name: str) -> tuple[dict[str, Any], list[dict[str, 
     return tmpl, list(quest.get("questions") or [])
 
 
+def _coerce_and_validate_answers(
+    mod_name: str,
+    tmpl: dict[str, Any],
+    questions: list[dict[str, Any]],
+    answers: dict[str, Any],
+) -> dict[str, Any]:
+    coerced = dict(answers)
+    for q in questions:
+        qid = q.get("id")
+        if not qid:
+            continue
+        qtype = q.get("type")
+        required = bool(q.get("required", False))
+        val = coerced.get(qid)
+
+        if qtype == "integer" and isinstance(val, str) and val.strip():
+            try:
+                val = int(val.strip())
+                coerced[qid] = val
+            except ValueError:
+                pass  # Caught by validate_answers below
+        elif qtype == "confirm" and isinstance(val, str):
+            low = val.strip().lower()
+            if low in ("true", "yes", "y", "1"):
+                val = True
+                coerced[qid] = True
+            elif low in ("false", "no", "n", "0"):
+                val = False
+                coerced[qid] = False
+
+        if required:
+            if val is None or val == "" or (qtype == "confirm" and val is not True):
+                raise GitOpsError(
+                    f"Module {mod_name!r} requires answer {qid!r} to be set/accepted."
+                )
+
+        if qtype == "select" and val is not None:
+            choices = [str(c) for c in (q.get("choices") or [])]
+            if choices and str(val) not in choices:
+                raise GitOpsError(
+                    f"Module {mod_name!r} answer {qid!r}={val!r} must be one of {choices}"
+                )
+
+    for ph in sorted(_extract_placeholders(tmpl)):
+        if ph not in coerced or coerced[ph] is None:
+            raise GitOpsError(
+                f"Module {mod_name!r} missing required placeholder answer {ph!r}"
+            )
+
+    val_errors = validate_answers(questions, coerced)
+    if val_errors:
+        raise GitOpsError(
+            f"Invalid answers for {mod_name!r}: " + "; ".join(val_errors)
+        )
+    return coerced
+
+
 def _effective_answers(
     questions: list[dict[str, Any]],
     existing: dict[str, Any] | None,
@@ -124,10 +184,23 @@ def _effective_answers(
     return merged
 
 
+def _normalize_module_entry(mod_name: str, raw_entry: Any) -> dict[str, Any]:
+    if raw_entry is None:
+        return {}
+    if not isinstance(raw_entry, dict):
+        raise GitOpsError(
+            f"modules.{mod_name} must be a mapping or empty (got {type(raw_entry).__name__})"
+        )
+    return raw_entry
+
+
 def compute_plan(spec: dict[str, Any]) -> ReconcilePlan:
     """Compute and validate a conflict-free reconciliation plan."""
     prune = bool(spec.get("prune", True))
-    modules_spec: dict[str, Any] = spec.get("modules") or {}
+    raw_modules: dict[str, Any] = spec.get("modules") or {}
+    modules_spec = {
+        name: _normalize_module_entry(name, val) for name, val in raw_modules.items()
+    }
 
     current_state = state_mod.load()
     currently_mounted = set(current_state.mounted)
@@ -137,23 +210,22 @@ def compute_plan(spec: dict[str, Any]) -> ReconcilePlan:
 
     if prune:
         for active_mod in sorted(currently_mounted):
-            entry = modules_spec.get(active_mod)
-            if not isinstance(entry, dict) or not bool(entry.get("mounted", True)):
+            if active_mod not in modules_spec or not bool(
+                modules_spec[active_mod].get("mounted", True)
+            ):
                 plan.to_dismount.append(active_mod)
     else:
         for mod_name, entry in sorted(modules_spec.items()):
-            if isinstance(entry, dict) and entry.get("mounted") is False and mod_name in currently_mounted:
+            if entry.get("mounted") is False and mod_name in currently_mounted:
                 plan.to_dismount.append(mod_name)
 
-        # Keep claims of unmentioned mounted modules when prune=False
         for active_mod in sorted(currently_mounted):
             if active_mod not in modules_spec and active_mod not in plan.to_dismount:
                 tmpl, questions = _load_module_meta(active_mod)
                 ans = _effective_answers(questions, load_answers(active_mod), {})
                 desired_mounted_claims[active_mod] = resolve_claims(tmpl, ans)
 
-    for mod_name, raw_entry in sorted(modules_spec.items()):
-        entry = raw_entry if isinstance(raw_entry, dict) else {}
+    for mod_name, entry in sorted(modules_spec.items()):
         want_mounted = bool(entry.get("mounted", True))
         declared_answers = entry.get("answers") or {}
         if not isinstance(declared_answers, dict):
@@ -161,13 +233,12 @@ def compute_plan(spec: dict[str, Any]) -> ReconcilePlan:
 
         tmpl, questions = _load_module_meta(mod_name)
         existing_answers = load_answers(mod_name)
-        effective = _effective_answers(questions, existing_answers, declared_answers)
-
-        val_errors = validate_answers(questions, effective)
-        if val_errors:
-            raise GitOpsError(
-                f"Invalid answers for {mod_name!r}: " + "; ".join(val_errors)
-            )
+        effective = _coerce_and_validate_answers(
+            mod_name,
+            tmpl,
+            questions,
+            _effective_answers(questions, existing_answers, declared_answers),
+        )
 
         if want_mounted:
             try:
@@ -190,7 +261,6 @@ def compute_plan(spec: dict[str, Any]) -> ReconcilePlan:
             else:
                 plan.to_mount.append((mod_name, effective))
         else:
-            # Dormant module: pre-seed/reconfigure answers if changed
             if mod_name not in plan.to_dismount:
                 if declared_answers and existing_answers != effective:
                     plan.to_reconfigure.append((mod_name, effective))

@@ -29,9 +29,12 @@ SSH_TASK = Task(
     ),
     steps=(
         Step(
-            "Back up the current sshd_config",
+            "Back up sshd_config and ensure drop-in Include",
             'mkdir -p /etc/ssh/sshd_config.d && '
-            'cp -n /etc/ssh/sshd_config "/etc/ssh/sshd_config.backup.$(date +%F)"',
+            'cp -n /etc/ssh/sshd_config "/etc/ssh/sshd_config.backup.$(date +%F)" && '
+            '(grep -Eq "^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\\.d/\\*\\.conf" '
+            '/etc/ssh/sshd_config || '
+            'sed -i "1i Include /etc/ssh/sshd_config.d/*.conf" /etc/ssh/sshd_config)',
         ),
         Step(
             "Write the hardening drop-in config",

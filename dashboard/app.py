@@ -157,7 +157,7 @@ def health():
 
 @app.get("/metrics")
 def metrics_endpoint():
-    """Prometheus text exposition endpoint (optional Bearer token via DASHBOARD_METRICS_TOKEN)."""
+    """Prometheus text exposition endpoint (loopback, session-authed, or Bearer token)."""
     expected_token = os.environ.get("DASHBOARD_METRICS_TOKEN", "").strip()
     if expected_token:
         auth_header = request.headers.get("Authorization") or ""
@@ -170,6 +170,10 @@ def metrics_endpoint():
             provided.encode("utf-8"),
             expected_token.encode("utf-8"),
         ):
+            return jsonify({"error": "unauthorized"}), 401
+    else:
+        remote = (request.remote_addr or "").strip()
+        if remote not in ("127.0.0.1", "::1", "localhost") and not is_authenticated():
             return jsonify({"error": "unauthorized"}), 401
 
     body = prometheus.render_prometheus_metrics(

@@ -21,6 +21,11 @@ questions:
     default: 9090
     validate: "1024-65535"
 
+  - id: metrics_target
+    label: "Platypus /metrics scrape host:port"
+    type: text
+    default: "host.docker.internal:5050"
+
   - id: admin_user
     label: "Grafana admin username"
     type: text

@@ -9,6 +9,19 @@
     mode: "0755"
   become: true
 
+- name: Ensure sshd_config includes drop-in directory
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^\s*Include\s+/etc/ssh/sshd_config\.d/\*\.conf'
+    line: "Include /etc/ssh/sshd_config.d/*.conf"
+    insertbefore: BOF
+    create: true
+    owner: root
+    group: root
+    mode: "0644"
+  become: true
+  notify: Restart SSH service
+
 - name: Write the SSH hardening drop-in config
   ansible.builtin.copy:
     content: |
@@ -27,14 +40,14 @@
   become: true
   notify: Restart SSH service
 
-- name: Install UFW on non-RedHat systems
+- name: Install UFW on Debian, Arch, and Alpine systems
   ansible.builtin.package:
     name: ufw
     state: present
   become: true
   when:
     - security_manage_firewall | bool
-    - ansible_os_family != "RedHat"
+    - ansible_os_family not in ["RedHat", "Suse"]
 
 - name: Set UFW default policies
   community.general.ufw:
@@ -46,7 +59,7 @@
   become: true
   when:
     - security_manage_firewall | bool
-    - ansible_os_family != "RedHat"
+    - ansible_os_family not in ["RedHat", "Suse"]
 
 - name: Allow SSH through UFW
   community.general.ufw:
@@ -56,7 +69,7 @@
   become: true
   when:
     - security_manage_firewall | bool
-    - ansible_os_family != "RedHat"
+    - ansible_os_family not in ["RedHat", "Suse"]
 
 - name: Allow HTTP and HTTPS through UFW (VPS only)
   community.general.ufw:
@@ -69,7 +82,7 @@
   become: true
   when:
     - security_manage_firewall | bool
-    - ansible_os_family != "RedHat"
+    - ansible_os_family not in ["RedHat", "Suse"]
     - platypus_target == "vps"
 
 - name: Allow the Tailscale interface through UFW (home server only)
@@ -79,7 +92,7 @@
   become: true
   when:
     - security_manage_firewall | bool
-    - ansible_os_family != "RedHat"
+    - ansible_os_family not in ["RedHat", "Suse"]
     - platypus_target == "home"
 
 - name: Enable UFW
@@ -88,18 +101,18 @@
   become: true
   when:
     - security_manage_firewall | bool
-    - ansible_os_family != "RedHat"
+    - ansible_os_family not in ["RedHat", "Suse"]
 
-- name: Install firewalld on RedHat-family systems
+- name: Install firewalld on RedHat and Suse systems
   ansible.builtin.package:
     name: firewalld
     state: present
   become: true
   when:
     - security_manage_firewall | bool
-    - ansible_os_family == "RedHat"
+    - ansible_os_family in ["RedHat", "Suse"]
 
-- name: Enable and start firewalld on RedHat-family systems
+- name: Enable and start firewalld on RedHat and Suse systems
   ansible.builtin.service:
     name: firewalld
     state: started
@@ -107,7 +120,7 @@
   become: true
   when:
     - security_manage_firewall | bool
-    - ansible_os_family == "RedHat"
+    - ansible_os_family in ["RedHat", "Suse"]
 
 - name: Allow SSH through firewalld
   ansible.posix.firewalld:
@@ -118,7 +131,7 @@
   become: true
   when:
     - security_manage_firewall | bool
-    - ansible_os_family == "RedHat"
+    - ansible_os_family in ["RedHat", "Suse"]
 
 - name: Allow HTTP and HTTPS through firewalld (VPS only)
   ansible.posix.firewalld:
@@ -132,7 +145,7 @@
   become: true
   when:
     - security_manage_firewall | bool
-    - ansible_os_family == "RedHat"
+    - ansible_os_family in ["RedHat", "Suse"]
     - platypus_target == "vps"
 
 - name: Trust Tailscale interface in firewalld (home server only)
@@ -145,7 +158,7 @@
   become: true
   when:
     - security_manage_firewall | bool
-    - ansible_os_family == "RedHat"
+    - ansible_os_family in ["RedHat", "Suse"]
     - platypus_target == "home"
 
 - name: Install fail2ban (VPS only)
