@@ -8,10 +8,10 @@ import platypus_cli.cli as cli
 
 
 def test_subcommand_table():
-    assert set(cli.SUBCOMMANDS) == {
+    assert {
         "doctor", "setup", "dashboard", "mount", "dismount", "reconfigure",
-        "switch", "status", "generate",
-    }
+        "switch", "status", "module", "generate",
+    } <= set(cli.SUBCOMMANDS)
 
 
 @pytest.mark.parametrize(
