@@ -1,13 +1,13 @@
 ---
-# security role: tasks
-#
-# SSH hardening and the UFW firewall run for every target.  The steps then
-# diverge depending on what the machine is:
-#
-#   vps  — public server: additionally open HTTP/HTTPS for the reverse proxy
-#          and install fail2ban to protect SSH from brute force
-#   home — LAN device: additionally allow the Tailscale interface so remote
-#          access keeps working behind the firewall
+# security role: multi-distro SSH hardening, firewall (UFW / firewalld), and fail2ban
+- name: Ensure the sshd drop-in directory exists
+  ansible.builtin.file:
+    path: /etc/ssh/sshd_config.d
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  become: true
 
 - name: Write the SSH hardening drop-in config
   ansible.builtin.copy:
@@ -25,15 +25,16 @@
     group: root
     mode: "0644"
   become: true
-  when: ansible_os_family == "Debian"
   notify: Restart SSH service
 
-- name: Install UFW
+- name: Install UFW on non-RedHat systems
   ansible.builtin.package:
     name: ufw
     state: present
   become: true
-  when: ansible_os_family == "Debian"
+  when:
+    - security_manage_firewall | bool
+    - ansible_os_family != "RedHat"
 
 - name: Set UFW default policies
   community.general.ufw:
@@ -43,7 +44,9 @@
     - {direction: incoming, policy: deny}
     - {direction: outgoing, policy: allow}
   become: true
-  when: ansible_os_family == "Debian"
+  when:
+    - security_manage_firewall | bool
+    - ansible_os_family != "RedHat"
 
 - name: Allow SSH through UFW
   community.general.ufw:
@@ -51,7 +54,9 @@
     port: "22"
     proto: tcp
   become: true
-  when: ansible_os_family == "Debian"
+  when:
+    - security_manage_firewall | bool
+    - ansible_os_family != "RedHat"
 
 - name: Allow HTTP and HTTPS through UFW (VPS only)
   community.general.ufw:
@@ -63,7 +68,8 @@
     - "443"
   become: true
   when:
-    - ansible_os_family == "Debian"
+    - security_manage_firewall | bool
+    - ansible_os_family != "RedHat"
     - platypus_target == "vps"
 
 - name: Allow the Tailscale interface through UFW (home server only)
@@ -72,14 +78,75 @@
     interface: tailscale0
   become: true
   when:
-    - ansible_os_family == "Debian"
+    - security_manage_firewall | bool
+    - ansible_os_family != "RedHat"
     - platypus_target == "home"
 
 - name: Enable UFW
   community.general.ufw:
     state: enabled
   become: true
-  when: ansible_os_family == "Debian"
+  when:
+    - security_manage_firewall | bool
+    - ansible_os_family != "RedHat"
+
+- name: Install firewalld on RedHat-family systems
+  ansible.builtin.package:
+    name: firewalld
+    state: present
+  become: true
+  when:
+    - security_manage_firewall | bool
+    - ansible_os_family == "RedHat"
+
+- name: Enable and start firewalld on RedHat-family systems
+  ansible.builtin.service:
+    name: firewalld
+    state: started
+    enabled: true
+  become: true
+  when:
+    - security_manage_firewall | bool
+    - ansible_os_family == "RedHat"
+
+- name: Allow SSH through firewalld
+  ansible.posix.firewalld:
+    service: ssh
+    permanent: true
+    immediate: true
+    state: enabled
+  become: true
+  when:
+    - security_manage_firewall | bool
+    - ansible_os_family == "RedHat"
+
+- name: Allow HTTP and HTTPS through firewalld (VPS only)
+  ansible.posix.firewalld:
+    service: "{{ item }}"
+    permanent: true
+    immediate: true
+    state: enabled
+  loop:
+    - http
+    - https
+  become: true
+  when:
+    - security_manage_firewall | bool
+    - ansible_os_family == "RedHat"
+    - platypus_target == "vps"
+
+- name: Trust Tailscale interface in firewalld (home server only)
+  ansible.posix.firewalld:
+    zone: trusted
+    interface: tailscale0
+    permanent: true
+    immediate: true
+    state: enabled
+  become: true
+  when:
+    - security_manage_firewall | bool
+    - ansible_os_family == "RedHat"
+    - platypus_target == "home"
 
 - name: Install fail2ban (VPS only)
   ansible.builtin.package:
@@ -87,7 +154,6 @@
     state: present
   become: true
   when:
-    - ansible_os_family == "Debian"
     - platypus_target == "vps"
 
 - name: Enable and start fail2ban (VPS only)
@@ -97,5 +163,4 @@
     enabled: true
   become: true
   when:
-    - ansible_os_family == "Debian"
     - platypus_target == "vps"

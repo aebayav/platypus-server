@@ -1,3 +1,5 @@
 ---
 # security role: default variables
 platypus_target: home  # noqa: var-naming
+security_manage_firewall: true
+security_manage_ssh_service: true

@@ -1,0 +1,25 @@
+---
+dependency:
+  name: galaxy
+driver:
+  name: docker
+platforms:
+  - name: instance
+    image: geerlingguy/docker-debian12-ansible:latest
+    pre_build_image: true
+    command: ""
+    volumes:
+      - /sys/fs/cgroup:/sys/fs/cgroup:rw
+    privileged: true
+    tmpfs:
+      - /run
+      - /tmp
+provisioner:
+  name: ansible
+  config_options:
+    defaults:
+      roles_path: ../../roles
+      collections_path: ../../collections
+      interpreter_python: auto_silent
+verifier:
+  name: ansible

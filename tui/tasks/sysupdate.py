@@ -1,4 +1,4 @@
-"""Task: update all system packages via apt."""
+"""Task: update all system packages across Linux distributions."""
 
 from .base import Step, Task
 
@@ -6,9 +6,8 @@ SYSUPDATE_TASK = Task(
     id="sysupdate",
     title="System Update",
     description=(
-        "Runs a full system package update: refreshes the package index, upgrades "
-        "all installed packages to their latest versions, and cleans up obsolete "
-        "packages and cached archives."
+        "Runs a full system package update across Debian/Ubuntu (apt), "
+        "RHEL/Fedora (dnf), Arch (pacman), openSUSE (zypper), and Alpine (apk)."
     ),
     warning=(
         "This will upgrade **all installed packages** to their latest versions. "
@@ -17,20 +16,14 @@ SYSUPDATE_TASK = Task(
     ),
     steps=(
         Step(
-            "Refresh the package index",
-            "apt-get update",
-        ),
-        Step(
-            "Upgrade all installed packages",
-            "DEBIAN_FRONTEND=noninteractive apt-get upgrade -y",
-        ),
-        Step(
-            "Remove obsolete packages",
-            "apt-get autoremove -y",
-        ),
-        Step(
-            "Clean cached package archives",
-            "apt-get autoclean",
+            "Refresh and upgrade installed packages",
+            "if command -v apt-get >/dev/null 2>&1; then "
+            "apt-get update && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y && "
+            "apt-get autoremove -y && apt-get autoclean; "
+            "elif command -v dnf >/dev/null 2>&1; then dnf upgrade -y && dnf autoremove -y; "
+            "elif command -v pacman >/dev/null 2>&1; then pacman -Syu --noconfirm; "
+            "elif command -v zypper >/dev/null 2>&1; then zypper --non-interactive update; "
+            "elif command -v apk >/dev/null 2>&1; then apk update && apk upgrade; fi",
         ),
         Step(
             "Show pending reboot status",
@@ -41,4 +34,3 @@ SYSUPDATE_TASK = Task(
         ),
     ),
 )
-

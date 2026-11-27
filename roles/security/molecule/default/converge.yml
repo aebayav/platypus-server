@@ -1,0 +1,9 @@
+---
+- name: Converge
+  hosts: all
+  gather_facts: true
+  vars:
+    security_manage_firewall: false
+    security_manage_ssh_service: false
+  roles:
+    - role: security

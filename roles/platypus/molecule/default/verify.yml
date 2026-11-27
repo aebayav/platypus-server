@@ -1,0 +1,15 @@
+---
+- name: Verify
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Stat runtime application directory
+      ansible.builtin.stat:
+        path: /opt/platypus/platypus-server
+      register: app_dir
+
+    - name: Assert application directory exists
+      ansible.builtin.assert:
+        that:
+          - app_dir.stat.exists
+          - app_dir.stat.isdir

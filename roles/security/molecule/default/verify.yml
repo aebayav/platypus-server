@@ -1,0 +1,15 @@
+---
+- name: Verify
+  hosts: all
+  gather_facts: false
+  tasks:
+    - name: Stat SSH hardening drop-in file
+      ansible.builtin.stat:
+        path: /etc/ssh/sshd_config.d/99-hardening.conf
+      register: ssh_dropin
+
+    - name: Assert SSH hardening drop-in exists with expected permissions
+      ansible.builtin.assert:
+        that:
+          - ssh_dropin.stat.exists
+          - ssh_dropin.stat.mode == "0644"

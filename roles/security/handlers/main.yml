@@ -5,3 +5,4 @@
     name: "{{ ssh_service_name }}"
     state: restarted
   become: true
+  when: security_manage_ssh_service | bool

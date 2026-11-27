@@ -1,4 +1,4 @@
 ---
 # security role: maintainable variables
-# Debian/Ubuntu call the service 'ssh'; RHEL-family uses 'sshd'.
-ssh_service_name: "{{ 'sshd' if ansible_os_family == 'RedHat' else 'ssh' }}"  # noqa: var-naming
+# Debian/Ubuntu call the service 'ssh'; RHEL, Arch, Suse, and Alpine use 'sshd'.
+ssh_service_name: "{{ 'ssh' if ansible_os_family == 'Debian' else 'sshd' }}"  # noqa: var-naming

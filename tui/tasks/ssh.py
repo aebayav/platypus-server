@@ -1,12 +1,25 @@
-"""Task: harden the SSH daemon."""
+"""Task: harden the SSH daemon (canonical policy shared with Ansible security role)."""
 
 from .base import Step, Task
+
+SSH_HARDENING_LINES: tuple[str, ...] = (
+    "PermitRootLogin no",
+    "PasswordAuthentication no",
+    "PubkeyAuthentication yes",
+    "KbdInteractiveAuthentication no",
+    "X11Forwarding no",
+    "MaxAuthTries 3",
+    "ClientAliveInterval 300",
+    "ClientAliveCountMax 2",
+)
+
+_PRINTF_ARGS = " ".join(f"'{line}'" for line in SSH_HARDENING_LINES)
 
 SSH_TASK = Task(
     id="ssh",
     title="SSH Hardening",
     description=(
-        "Disables root login and password authentication, and tightens a few "
+        "Disables root login and password authentication, and tightens "
         "SSH options via a drop-in config at `/etc/ssh/sshd_config.d/99-hardening.conf`."
     ),
     warning=(
@@ -17,19 +30,18 @@ SSH_TASK = Task(
     steps=(
         Step(
             "Back up the current sshd_config",
+            'mkdir -p /etc/ssh/sshd_config.d && '
             'cp -n /etc/ssh/sshd_config "/etc/ssh/sshd_config.backup.$(date +%F)"',
         ),
         Step(
             "Write the hardening drop-in config",
-            "printf '%s\\n' 'PermitRootLogin no' 'PasswordAuthentication no' "
-            "'PubkeyAuthentication yes' 'KbdInteractiveAuthentication no' "
-            "'X11Forwarding no' 'MaxAuthTries 3' 'ClientAliveInterval 300' "
-            "'ClientAliveCountMax 2' > /etc/ssh/sshd_config.d/99-hardening.conf",
+            f"printf '%s\\n' {_PRINTF_ARGS} > /etc/ssh/sshd_config.d/99-hardening.conf",
         ),
         Step("Validate the SSH configuration", "sshd -t"),
         Step(
             "Restart the SSH service",
-            "systemctl restart sshd 2>/dev/null || systemctl restart ssh",
+            "systemctl restart sshd 2>/dev/null || systemctl restart ssh "
+            "|| rc-service sshd restart",
         ),
     ),
 )
