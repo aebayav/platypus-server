@@ -5,7 +5,7 @@ from recipe.model import builtin_roles
 
 SAMPLE_ANSWERS = {
     "port": 25565, "web_port": 8080, "http_port": 8081,
-    "tcp_port": 9600, "udp_port": 9600,
+    "tcp_port": 9600, "udp_port": 9600, "prometheus_port": 9090,
 }
 
 

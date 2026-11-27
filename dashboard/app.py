@@ -1,17 +1,19 @@
 """Flask app serving the Platypus dashboard and its REST API."""
 
 import argparse
+import hmac
 import os
 import socket
 import threading
 import time
 import urllib.request
-from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
+from pathlib import Path
 
-from flask import Flask, jsonify, redirect, request, send_from_directory, session, url_for
+from flask import Flask, Response, jsonify, redirect, request, send_from_directory, session, url_for
 
-from . import compose, dockerctl, firewall, metrics, systemd
+from . import compose, dockerctl, firewall, metrics, prometheus, systemd
 from . import __version__ as _DASHBOARD_VERSION
 from .auth import (
     check_credentials,
@@ -40,6 +42,7 @@ app.config.update(
 # Record the start time for the /health uptime field.
 _APP_START: float = time.monotonic()
 _APP_START_UTC: datetime = datetime.now(timezone.utc)
+_PLATYPUS_RUNTIME_DIR: Path = Path("/opt/platypus")
 
 CHECK_TIMEOUT = 1.5
 
@@ -150,6 +153,31 @@ def health():
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     )
+
+
+@app.get("/metrics")
+def metrics_endpoint():
+    """Prometheus text exposition endpoint (optional Bearer token via DASHBOARD_METRICS_TOKEN)."""
+    expected_token = os.environ.get("DASHBOARD_METRICS_TOKEN", "").strip()
+    if expected_token:
+        auth_header = request.headers.get("Authorization") or ""
+        provided = (
+            auth_header[7:].strip()
+            if auth_header.lower().startswith("bearer ")
+            else ""
+        )
+        if not provided or not hmac.compare_digest(
+            provided.encode("utf-8"),
+            expected_token.encode("utf-8"),
+        ):
+            return jsonify({"error": "unauthorized"}), 401
+
+    body = prometheus.render_prometheus_metrics(
+        snapshot=_snapshot(),
+        uptime_seconds=time.monotonic() - _APP_START,
+        platypus_dir=_PLATYPUS_RUNTIME_DIR,
+    )
+    return Response(body, mimetype="text/plain", headers={"Content-Type": "text/plain; version=0.0.4; charset=utf-8"})
 
 
 # ---------------------------------------------------------------------------
@@ -418,13 +446,11 @@ def api_systemd_action(unit: str, action: str):
 @login_required
 def api_recipe():
     """Return mounted and dormant modules from the recipe state."""
-    from pathlib import Path
-
     from .recipe_state import read
 
     out = read(
-        Path("/opt/platypus/state.yml"),
-        Path("/opt/platypus/roles"),
+        _PLATYPUS_RUNTIME_DIR / "state.yml",
+        _PLATYPUS_RUNTIME_DIR / "roles",
     )
     return jsonify(out)
 

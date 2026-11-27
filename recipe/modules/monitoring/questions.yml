@@ -1,0 +1,37 @@
+---
+role: monitoring
+title: "Monitoring (Prometheus + Grafana)"
+description: "Prometheus metrics collection and Grafana dashboards for Platypus"
+
+questions:
+  - id: domain
+    label: "Grafana domain name (e.g. metrics.example.com)"
+    type: text
+    default: metrics.example.com
+
+  - id: web_port
+    label: "Grafana host HTTP port"
+    type: integer
+    default: 3000
+    validate: "1024-65535"
+
+  - id: prometheus_port
+    label: "Prometheus host HTTP port"
+    type: integer
+    default: 9090
+    validate: "1024-65535"
+
+  - id: admin_user
+    label: "Grafana admin username"
+    type: text
+    default: admin
+
+  - id: admin_password
+    label: "Grafana admin password"
+    type: text
+    default: changeme
+
+  - id: timezone
+    label: "Timezone"
+    type: text
+    default: Europe/Istanbul

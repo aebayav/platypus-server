@@ -8,6 +8,7 @@ EXPECTED_ROLES = [
     "assetto-corsa",
     "jellyfin",
     "minecraft-server",
+    "monitoring",
     "pihole",
     "storage-nextcloud",
     "storage-samba",

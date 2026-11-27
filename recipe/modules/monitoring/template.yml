@@ -1,0 +1,62 @@
+---
+# Observability companion stack: Prometheus + Grafana scraping Platypus /metrics
+role: monitoring
+weight: companion
+ports:
+  - "{answers[web_port]}/tcp"
+  - "{answers[prometheus_port]}/tcp"
+version: "1.0"
+description: "Prometheus + Grafana observability stack for Platypus metrics"
+
+hooks:
+  pre_remove: []
+  post_remove: []
+  pre_apply:
+    - "mkdir -p ./data/prometheus ./data/grafana"
+    - >-
+      test -f ./data/prometheus/prometheus.yml || printf '%s\n'
+      'global:'
+      '  scrape_interval: 15s'
+      'scrape_configs:'
+      '  - job_name: platypus'
+      '    static_configs:'
+      '      - targets: ["host.docker.internal:5050"]'
+      > ./data/prometheus/prometheus.yml
+  post_apply:
+    - "echo 'Grafana ready on port {answers[web_port]}; Prometheus on {answers[prometheus_port]}'"
+
+caddy:
+  enabled: true
+  route: |
+    {answers[domain]} {{
+        reverse_proxy localhost:{answers[web_port]}
+    }}
+
+compose_template: |
+  services:
+    prometheus:
+      image: prom/prometheus:v2.54.1
+      container_name: platypus-prometheus
+      restart: unless-stopped
+      ports:
+        - "{answers[prometheus_port]}:9090"
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
+      volumes:
+        - ./data/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+        - ./data/prometheus-tsdb:/prometheus
+
+    grafana:
+      image: grafana/grafana-oss:11.2.2
+      container_name: platypus-grafana
+      restart: unless-stopped
+      ports:
+        - "{answers[web_port]}:3000"
+      environment:
+        GF_SECURITY_ADMIN_USER: "{answers[admin_user]}"
+        GF_SECURITY_ADMIN_PASSWORD: "{answers[admin_password]}"
+        TZ: "{answers[timezone]}"
+      volumes:
+        - ./data/grafana:/var/lib/grafana
+      depends_on:
+        - prometheus
