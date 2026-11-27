@@ -1,0 +1,31 @@
+---
+# Example declarative GitOps manifest for `platypus plan -f examples/server.yml`
+# Secrets can use ${ENV_VAR} interpolation or SOPS encryption (server.sops.yml).
+apiVersion: platypus/v1
+target: home
+prune: true
+
+modules:
+  pihole:
+    mounted: true
+    answers:
+      domain: pi.home.arpa
+      web_port: 8081
+      local_ip: 192.168.1.10
+      admin_password: "${PIHOLE_ADMIN_PASSWORD:-changeme}"
+      timezone: Europe/Istanbul
+
+  syncthing:
+    mounted: true
+    answers:
+      domain: sync.home.arpa
+      web_port: 8384
+      timezone: Europe/Istanbul
+
+  jellyfin:
+    mounted: false
+    answers:
+      domain: media.home.arpa
+      web_port: 8096
+      media_path: /srv/media
+      timezone: Europe/Istanbul

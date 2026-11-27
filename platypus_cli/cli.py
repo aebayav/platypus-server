@@ -17,6 +17,8 @@ SUBCOMMANDS: dict[str, tuple[str, str, str | None]] = {
     "module":      ("recipe.module_cli", "main", None),
     "backup":      ("recipe.backup",  "main_backup", None),
     "restore":     ("recipe.backup",  "main_restore", None),
+    "plan":        ("recipe.gitops",  "main_plan", None),
+    "apply":       ("recipe.gitops",  "main_apply", None),
     "generate":    ("zero2server.cli", "main", None),
 }
 
@@ -34,6 +36,8 @@ USAGE = (
     "  module      scaffold, lint, and list modules\n"
     "  backup      create a state-aware backup (tar or restic)\n"
     "  restore     verify and restore a backup archive\n"
+    "  plan        preview declarative GitOps changes from server.yml\n"
+    "  apply       reconcile mounted modules to match server.yml\n"
     "  generate    generate docker-compose.yml + Caddyfile\n"
 )
 
