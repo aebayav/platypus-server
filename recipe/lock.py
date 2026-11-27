@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,6 +33,12 @@ class LockError(Exception):
 
 def _pid_alive(pid: int) -> bool:
     """Return True when *pid* names a running process."""
+    if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 0:
+        return False
+    if sys.platform == "win32":
+        import psutil
+
+        return bool(psutil.pid_exists(pid))
     try:
         os.kill(pid, 0)
     except PermissionError:

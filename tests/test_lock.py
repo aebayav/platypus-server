@@ -138,3 +138,18 @@ def test_release_skips_foreign_lock(tmp_path, monkeypatch):
     )
     lock.release()
     assert not lock.LOCK_PATH.exists()  # ours: removed
+
+
+def test_pid_alive_rejects_nonpositive_and_avoids_win32_os_kill(monkeypatch):
+    # Stub os.kill first so an unpatched _pid_alive(0) on Windows never sends
+    # real CTRL_C_EVENT (signal 0) to the shared console process group!
+    called_kill = []
+    monkeypatch.setattr(os, "kill", lambda p, s: called_kill.append((p, s)))
+
+    assert lock._pid_alive(0) is False
+    assert lock._pid_alive(-1) is False
+
+    monkeypatch.setattr(lock, "sys", type("S", (), {"platform": "win32"})(), raising=False)
+    assert lock._pid_alive(os.getpid()) is True
+    assert lock._pid_alive(999999999) is False
+    assert called_kill == []
