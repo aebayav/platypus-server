@@ -5,5 +5,5 @@ yamllint>=1.33
 molecule>=24.0
 molecule-plugins[docker]>=23.5
 pytest>=8.0
-pytest-ansible>=24.0
+pytest-ansible>=26.11.0
 jmespath>=1.0
