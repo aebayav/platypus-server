@@ -18,7 +18,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Configuration (override via env)
 # ---------------------------------------------------------------------------
-BACKUP_DIRS="${BACKUP_DIRS:-/etc /var/www /home}"
+BACKUP_DIRS="${BACKUP_DIRS:-/opt/platypus /etc /var/www /home}"
 BACKUP_DEST="${BACKUP_DEST:-/var/backups/platypus}"
 BACKUP_RETENTION="${BACKUP_RETENTION:-7}"
 S3_BUCKET="${S3_BUCKET:-}"

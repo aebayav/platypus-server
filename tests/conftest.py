@@ -13,11 +13,13 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _recipe_runtime_paths(tmp_path, monkeypatch):
-    from recipe import caddy, cli, lock, renderer, state, transition
+    from recipe import backup, caddy, cli, lock, renderer, state, transition
 
     platypus = tmp_path / "platypus"
     platypus.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(state, "PLATYPUS_DIR", platypus)
+    monkeypatch.setattr(backup, "PLATYPUS_DIR", platypus)
+    monkeypatch.setattr(backup, "DEFAULT_BACKUP_DEST", tmp_path / "backups")
     monkeypatch.setattr(state, "STATE_FILE", platypus / "state.yml")
     monkeypatch.setattr(state, "STATE_BACKUP", platypus / "state.yml.bak")
     monkeypatch.setattr(lock, "LOCK_PATH", platypus / "transition.lock")

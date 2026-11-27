@@ -15,6 +15,8 @@ SUBCOMMANDS: dict[str, tuple[str, str, str | None]] = {
     "switch":      ("recipe.cli",     "main", "switch"),
     "status":      ("recipe.cli",     "main", "status"),
     "module":      ("recipe.module_cli", "main", None),
+    "backup":      ("recipe.backup",  "main_backup", None),
+    "restore":     ("recipe.backup",  "main_restore", None),
     "generate":    ("zero2server.cli", "main", None),
 }
 
@@ -30,6 +32,8 @@ USAGE = (
     "  switch      deprecated alias of mount\n"
     "  status      show mounted and dormant modules\n"
     "  module      scaffold, lint, and list modules\n"
+    "  backup      create a state-aware backup (tar or restic)\n"
+    "  restore     verify and restore a backup archive\n"
     "  generate    generate docker-compose.yml + Caddyfile\n"
 )
 

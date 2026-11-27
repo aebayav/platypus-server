@@ -18,6 +18,11 @@ description: "Minecraft Java Edition sunucusu (itzg/minecraft-server)"
 # No standalone shutdown section — RCON is handled via pre_remove hooks below.
 
 hooks:
+  pre_backup:
+    - "docker exec platypus-minecraft rcon-cli save-off || true"
+    - "docker exec platypus-minecraft rcon-cli save-all || true"
+  post_backup:
+    - "docker exec platypus-minecraft rcon-cli save-on || true"
   pre_remove:
     - "docker exec platypus-minecraft rcon-cli save-all || true"
     - "docker exec platypus-minecraft rcon-cli stop || true"
