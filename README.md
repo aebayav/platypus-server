@@ -33,10 +33,14 @@ options.
 |---|---|---|
 | Pre-flight checks | `platypus doctor` | Verify the machine before installing anything |
 | TUI setup | `platypus setup` | Interactive Linux server setup (Textual) |
-| Web dashboard | `platypus dashboard` | Services, metrics and container management (Flask) |
+| Web dashboard | `platypus dashboard` | Services, metrics, `/metrics` Prometheus exporter & container controls |
 | Modules | `platypus mount`, `platypus dismount`, `platypus reconfigure`, `platypus status` | Mount, freeze and re-answer pre-built modules — several at once |
+| Module SDK | `platypus module init\|lint\|list` | Scaffold, validate and inspect module templates |
+| State-aware Backup | `platypus backup`, `platypus restore` | Snapshot/restore module state with hooks, SHA-256 verification & Restic |
+| GitOps Reconciler | `platypus plan`, `platypus apply` | Reconcile mounted modules from a declarative `server.yml` / SOPS file |
+| Fleet & Tunnels | `platypus fleet status\|apply\|tunnel` | Multi-node SSH orchestration & VPS-to-Home Tailscale Caddy tunnels |
 | Compose generator | `platypus generate` | Generate docker-compose.yml and Caddyfile |
-| Ansible layer | playbooks, inventory | Configuration management for dev/prod |
+| Cloud IaC & Ansible | `infra/terraform/`, `playbooks/` | OpenTofu/Terraform + Cloud-Init provisioning & multi-distro Ansible |
 
 The older commands — `platypus-tui`, `platypus-dashboard`,
 `platypus-server`, `zero-to-server` and `platypus-doctor` — remain installed
@@ -153,14 +157,9 @@ pytest -q
 
 | Distro family | Toolkit (`platypus` commands) | Ansible layer |
 |---|---|---|
-| Debian/Ubuntu | Supported | Supported |
-| Fedora/RHEL | Installs and runs | Security role not yet applied (known limitation) |
-| Arch, openSUSE, Alpine | Installs and runs | Security role not yet applied (known limitation) |
-
-The security role's SSH hardening, UFW and fail2ban tasks currently run on
-Debian-family systems only. Extending (or narrowing the claim to) the other
-distros is planned follow-up work — it is stated here rather than silently
-skipped.
+| Debian/Ubuntu | Supported | Supported (UFW + SSH hardening + fail2ban) |
+| Fedora/RHEL | Supported | Supported (firewalld + SSH hardening + fail2ban) |
+| Arch, openSUSE, Alpine | Supported | Supported (UFW + SSH hardening + fail2ban) |
 
 ## Profiles and settings
 
@@ -419,6 +418,7 @@ module is defined by two files under `recipe/modules/<name>/`:
 | `syncthing` | syncthing/syncthing | companion | File synchronization between devices |
 | `jellyfin` | jellyfin/jellyfin | main | Media server (movies, TV, music) |
 | `assetto-corsa` | germanrcuriel/assetto-corsa-server | main | Assetto Corsa dedicated racing server |
+| `monitoring` | prom/prometheus + grafana/grafana-oss | companion | Prometheus + Grafana observability stack scraping `/metrics` |
 
 `weight` is a recommendation label only: `companion` modules are light
 and port-conflict-free — good always-on candidates next to a heavier
@@ -461,6 +461,51 @@ interrupted operations. Dismount runs the module's `pre_remove` hooks
 Runtime data lives under `/opt/platypus/roles/<module>/` (`answers.yml`,
 `docker-compose.yml`, bind-mounted `./data`). The module system targets
 Linux hosts.
+
+## DevOps & Platform Workflows
+
+### Authoring & Linting Modules (`platypus module`)
+
+```bash
+platypus module list
+platypus module init my-service
+platypus module lint
+```
+
+See [docs/modules.md](docs/modules.md) and [CONTRIBUTING.md](CONTRIBUTING.md).
+
+### State-Aware Backups (`platypus backup` / `platypus restore`)
+
+Runs `pre_backup` / `post_backup` module hooks, writes a SHA-256 `manifest.json`, and supports both `.tar.gz` archives and encrypted **Restic** repositories:
+
+```bash
+platypus backup --dest /var/backups/platypus --keep 7
+RESTIC_PASSWORD=... platypus backup --backend restic --repo s3:s3.amazonaws.com/my-bucket
+platypus restore /var/backups/platypus/platypus-backup-all-20261127-120000.tar.gz
+```
+
+### Declarative GitOps (`platypus plan` / `platypus apply`)
+
+Define desired server state in YAML (supports `${ENV_VAR}` expansion and `*.sops.yml` decryption via SOPS):
+
+```bash
+platypus plan -f examples/server.yml --detailed-exitcode
+platypus apply -f examples/server.yml
+```
+
+### Multi-Node Fleet & Tailscale Tunnels (`platypus fleet`)
+
+Manage multiple nodes over SSH and route public VPS domains over Tailscale to private home-server modules:
+
+```bash
+platypus fleet status -f examples/fleet.yml
+platypus fleet apply -f examples/fleet.yml --node edge-vps --spec examples/server.yml
+platypus fleet tunnel -f examples/fleet.yml --apply
+```
+
+### Cloud Provisioning (OpenTofu / Terraform)
+
+Provision a hardened VPS on Hetzner Cloud or DigitalOcean with Cloud-Init running `bootstrap.sh` and `platypus apply` on first boot — see [docs/terraform.md](docs/terraform.md).
 
 ## Compose generator (`platypus generate`)
 

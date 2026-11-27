@@ -1,0 +1,26 @@
+---
+# Example multi-node fleet inventory for `platypus fleet`
+apiVersion: platypus/v1
+
+nodes:
+  edge-vps:
+    host: 203.0.113.10
+    tailscale_ip: 100.64.0.1
+    user: platypusadmin
+    port: 22
+    target: vps
+    tags: [edge, public]
+
+  home-server:
+    host: 100.64.0.2
+    tailscale_ip: 100.64.0.2
+    user: platypusadmin
+    port: 22
+    target: home
+    tags: [home, media]
+
+tunnels:
+  - domain: media.example.com
+    edge_node: edge-vps
+    origin_node: home-server
+    origin_port: 8096

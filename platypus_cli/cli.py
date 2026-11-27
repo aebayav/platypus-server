@@ -19,6 +19,7 @@ SUBCOMMANDS: dict[str, tuple[str, str, str | None]] = {
     "restore":     ("recipe.backup",  "main_restore", None),
     "plan":        ("recipe.gitops",  "main_plan", None),
     "apply":       ("recipe.gitops",  "main_apply", None),
+    "fleet":       ("recipe.fleet",   "main", None),
     "generate":    ("zero2server.cli", "main", None),
 }
 
@@ -38,6 +39,7 @@ USAGE = (
     "  restore     verify and restore a backup archive\n"
     "  plan        preview declarative GitOps changes from server.yml\n"
     "  apply       reconcile mounted modules to match server.yml\n"
+    "  fleet       orchestrate multiple nodes and Tailscale Caddy tunnels\n"
     "  generate    generate docker-compose.yml + Caddyfile\n"
 )
 
