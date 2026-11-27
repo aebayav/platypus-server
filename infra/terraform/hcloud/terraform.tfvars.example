@@ -1,0 +1,6 @@
+hcloud_token     = "replace-with-hetzner-api-token"
+server_name      = "platypus-vps"
+server_type      = "cx22"
+location         = "nbg1"
+ssh_public_key   = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... user@workstation"
+server_spec_path = "../../../examples/server.yml"

@@ -1,0 +1,24 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+
+users:
+  - default
+  - name: ${admin_user}
+    groups: [sudo, docker]
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    ssh_authorized_keys:
+      - "${ssh_public_key}"
+
+write_files:
+  - path: /etc/platypus/server.yml
+    permissions: "0640"
+    encoding: b64
+    content: "${server_spec_b64}"
+
+runcmd:
+  - curl -fsSL https://get.docker.com | sh
+  - usermod -aG docker ${admin_user} || true
+  - curl -fsSL https://raw.githubusercontent.com/aebayav/platypus-server/main/bootstrap.sh | env PLATYPUS_ENV=${platypus_env} PLATYPUS_TARGET=${platypus_target} bash
+  - bash -c 'if [ -s /etc/platypus/server.yml ]; then platypus apply -f /etc/platypus/server.yml; fi'

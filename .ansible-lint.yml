@@ -10,6 +10,8 @@ exclude_paths:
   # Python package data (module templates for the recipe system), not
   # Ansible content — the repo's own yamllint still covers them.
   - recipe/modules/
+  - examples/
+  - infra/
 
 # skip_list:
 #   - name[missing]

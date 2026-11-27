@@ -1,0 +1,6 @@
+do_token         = "replace-with-digitalocean-token"
+server_name      = "platypus-vps"
+size             = "s-2vcpu-2gb"
+region           = "fra1"
+ssh_public_key   = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI... user@workstation"
+server_spec_path = "../../../examples/server.yml"
